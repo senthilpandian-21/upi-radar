@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Environments / secrets
+.env
+*.local
+
+# Model artifacts (trained on your machine)
+models/**/saved_model/*.h5
+models/**/saved_model/*.pkl
+!models/**/saved_model/.gitkeep
+
+# Generated data
+data/synthetic/generated_data.csv
+data/processed/*.csv
+!data/processed/.gitkeep
+
+# Logs / reports (runtime artifacts)
+audit_logs/*.log
+reports/*.pdf
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Streamlit
+.streamlit/secrets.toml

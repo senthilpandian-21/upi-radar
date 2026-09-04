@@ -1,0 +1,58 @@
+# ═══════════════════════════════════════════════════════════
+# UPI RADAR — Python Dependencies
+# Target: Python 3.11+ (3.10+ works too)
+# NOTE: tensorflow / prophet / celery / langgraph are heavy and
+# optional at runtime — the system auto-falls back to Demo Mode.
+# Install the full set on your dev machine for training.
+# ═══════════════════════════════════════════════════════════
+
+# ── ML/AI ───────────────────────────────────────────────────
+tensorflow==2.15.0
+keras==2.15.0
+prophet==1.1.5
+scikit-learn==1.4.0
+numpy==1.26.0
+pandas==2.2.0
+shap==0.44.0
+
+# ── Data Pipeline ───────────────────────────────────────────
+kafka-python==2.0.2
+apscheduler==3.10.4
+
+# ── Storage ─────────────────────────────────────────────────
+psycopg2-binary==2.9.9
+redis==5.0.1
+sqlalchemy==2.0.25
+
+# ── Agent / Orchestration ───────────────────────────────────
+langgraph==0.1.0
+celery==5.3.6
+
+# ── API ─────────────────────────────────────────────────────
+fastapi==0.109.0
+pydantic==2.5.0
+uvicorn==0.27.0
+
+# ── Dashboard ───────────────────────────────────────────────
+streamlit==1.31.0
+plotly==5.18.0
+
+# ── External APIs ───────────────────────────────────────────
+razorpay==1.3.0
+requests==2.31.0
+beautifulsoup4==4.12.3
+
+# ── Alerts ──────────────────────────────────────────────────
+twilio==8.12.0
+
+# ── Reports ─────────────────────────────────────────────────
+reportlab==4.1.0
+
+# ── Utils ───────────────────────────────────────────────────
+python-dotenv==1.0.0
+loguru==0.7.2
+
+# ── Testing ─────────────────────────────────────────────────
+pytest==8.0.0
+pytest-asyncio==0.23.0
+httpx==0.26.0
