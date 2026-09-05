@@ -22,15 +22,15 @@ limit = st.select_slider("History window", options=[24, 48, 100, 200],
                          value=100)
 records = prediction_history(limit=limit)
 if records:
-    st.plotly_chart(history_line(records), use_container_width=True)
+    st.plotly_chart(history_line(records), width="stretch")
 
     probs = [float(r.get("outage_probability", 0)) for r in records]
     reds = sum(1 for p in probs if p >= 0.70)
     yellows = sum(1 for p in probs if 0.30 <= p < 0.70)
     c1, c2, c3 = st.columns(3)
     c1.metric("Samples shown", len(probs))
-    c2.metric(f"🔴 Red episodes (≥70%)", reds)
-    c3.metric(f"🟡 Yellow episodes", yellows)
+    c2.metric("🔴 Red episodes (≥70%)", reds)
+    c3.metric("🟡 Yellow episodes", yellows)
 
     current = predict_outage()
     st.info(f"{risk_emoji(float(current['final_probability']))} Current risk: "

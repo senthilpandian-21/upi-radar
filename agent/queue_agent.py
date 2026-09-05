@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from loguru import logger
 
@@ -36,7 +35,6 @@ except Exception:  # pragma: no cover
     razorpay = None
     RAZORPAY_AVAILABLE = False
 
-logger = logging.getLogger(__name__)
 
 
 class QueueAgent:

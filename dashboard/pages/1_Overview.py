@@ -20,7 +20,7 @@ st.header("📊 Current Outage Probability")
 st.caption("Ensemble forecast: LSTM (50%) + Prophet (30%) + Isolation Forest (20%)")
 
 auto = st.toggle("🔄 Auto-refresh every 30 seconds", value=False)
-if st.button("🔄 Refresh now", use_container_width=False):
+if st.button("🔄 Refresh now", width="content"):
     st.rerun()
 
 prediction = predict_outage()
@@ -56,11 +56,11 @@ st.markdown("---")
 left, right = st.columns([3, 2], gap="large")
 
 with left:
-    st.plotly_chart(risk_gauge(prob), use_container_width=True)
+    st.plotly_chart(risk_gauge(prob), width="stretch")
 
 with right:
     st.subheader("Model Breakdown")
-    st.plotly_chart(component_bars(prediction), use_container_width=True)
+    st.plotly_chart(component_bars(prediction), width="stretch")
     risk_box = {"RED": st.error, "YELLOW": st.warning, "GREEN": st.success}[risk]
     risk_box(f"{risk_emoji(prob)} **{risk}** — {prediction.get('recommendation', '')}")
     st.caption(f"Horizon: {prediction.get('horizon_minutes', 120)} minutes · "

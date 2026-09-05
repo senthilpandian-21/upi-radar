@@ -26,17 +26,22 @@ class QueueRules:
                      outage_probability: float = 0.0) -> bool:
         """Queue when the gateway times out OR outage risk is very high."""
         if razorpay_response_time_ms > RESPONSE_TIMEOUT_MS:
+            return True  # gateway under stress — wait & retry instead of failing
+
+        if outage_probability <= 0.90:
+            return False
+
+        # ── severe degradation window: P(outage) > 90% ──────────────
+        if transaction is None:
+            # system-level check without transaction context → shed load
             return True
-        # brief severe-degradation window: queue low-priority volume
-        if outage_probability > 0.90 and not transaction:
-            return True
-        if transaction:
-            amount = float(transaction.get("amount", 0) or 0)
-            method = str(transaction.get("method", "upi")).lower()
-            if outage_probability > 0.90 and amount < 100_000:
-                return True  # small txns can wait a few seconds
-            if method == "neft_imps" and outage_probability > 0.95:
-                return True
+
+        amount = float(transaction.get("amount", 0) or 0)
+        method = str(transaction.get("method", "upi")).lower()
+        if amount < 100_000:
+            return True  # small txns (< ₹1,000) can afford a short wait
+        if method == "neft_imps" and outage_probability > 0.95:
+            return True  # near-certain outage — hold even the slow rail
         return False
 
     @staticmethod

@@ -7,7 +7,6 @@ pipeline is still demonstrable end-to-end without Kafka.
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime
 
 from loguru import logger

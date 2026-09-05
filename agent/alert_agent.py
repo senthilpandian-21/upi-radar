@@ -7,7 +7,6 @@ logged — never raised — so alerting can never take the system down.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import smtplib
 from datetime import datetime
@@ -26,7 +25,6 @@ except Exception:  # pragma: no cover
     TwilioClient = None
     TWILIO_AVAILABLE = False
 
-logger = logging.getLogger(__name__)
 
 
 class AlertAgent:

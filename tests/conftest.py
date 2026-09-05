@@ -31,6 +31,9 @@ def isolated_environment(tmp_path, monkeypatch):
     reset_engine()
     from db.models import init_db
     init_db()
+    # fresh shared bank-health cache per test
+    from models.bank_health_scorer.scorer import reset_shared_scorer
+    reset_shared_scorer()
     yield tmp_path
 
 

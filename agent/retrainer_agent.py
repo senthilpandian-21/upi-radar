@@ -8,16 +8,12 @@ training run can never block the agent loop.
 from __future__ import annotations
 
 import json
-import logging
 import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from loguru import logger
-
-import sys
-from pathlib import Path
 
 ROOT = Path(__file__).resolve()
 for _ in range(4):
@@ -30,7 +26,6 @@ if str(ROOT) not in sys.path:
 
 from config import PROJECT_ROOT, audit_path
 
-logger = logging.getLogger(__name__)
 
 ACCURACY_RETRAIN_THRESHOLD = 0.80
 MIN_LABELLED_SAMPLES = 20

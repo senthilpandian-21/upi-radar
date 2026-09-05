@@ -7,9 +7,8 @@ Razorpay-supported banks — never to a competitor gateway.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
-from config import critical_health_threshold, warning_health_threshold
+from config import critical_health_threshold
 
 METHOD_ORDER = ["card", "netbanking", "wallet", "neft_imps", "upi"]
 
@@ -31,24 +30,28 @@ class ServiceRoutingDecision:
 
 
 class GatewayRulesEngine:
-    METHOD_CRITICAL = critical_health_threshold()    # 30
-    METHOD_WARNING = warning_health_threshold()      # 70
+    """Method-level (rail) routing rules.
+
+    Thresholds are read from config at call time so env changes take
+    effect without re-importing this module.
+    """
 
     def evaluate(self,
                  current_method: str,
                  method_health_scores: dict,
                  outage_probability: float) -> ServiceRoutingDecision:
+        method_critical = critical_health_threshold()   # default 30
         current_method = (current_method or "upi").lower()
         current_health = float(
             method_health_scores.get(current_method,
                                      {"score": 100}).get("score", 100))
 
         # ── RULE G1: current rail critical → switch method ─────────
-        if current_health < self.METHOD_CRITICAL:
+        if current_health < method_critical:
             alternate = self._suggest_alternate_method(current_method,
                                                        method_health_scores)
             reason = (f"RULE G1: {current_method} health {current_health:.1f}% "
-                      f"< {self.METHOD_CRITICAL:.0f}% → switch to {alternate}")
+                      f"< {method_critical:.0f}% → switch to {alternate}")
             return ServiceRoutingDecision(action="SWITCH_METHOD",
                                           suggested_method=alternate,
                                           reason=reason,

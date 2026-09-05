@@ -6,7 +6,6 @@ changes. Tests may point DATABASE_URL at a temp sqlite file.
 """
 from __future__ import annotations
 
-import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path

@@ -13,7 +13,6 @@ from pathlib import Path
 from loguru import logger
 
 import sys
-from pathlib import Path
 
 ROOT = Path(__file__).resolve()
 for _ in range(4):
@@ -25,7 +24,7 @@ if str(ROOT) not in sys.path:
 
 
 from config import PROJECT_ROOT
-from db.models import Base, get_engine, init_db, is_postgres, session_scope
+from db.models import get_engine, init_db, is_postgres, session_scope
 
 MIGRATION_SQL = PROJECT_ROOT / "db" / "migrations" / "001_initial_schema.sql"
 
@@ -71,8 +70,6 @@ def seed_demo_data() -> None:
     """Idempotent demo seed: a few alerts/routing rows so dashboards and
     API history endpoints show something on first boot."""
     try:
-        from datetime import timedelta
-
         from db.models import AlertLog, RoutingDecisionRow
 
         with session_scope() as session:

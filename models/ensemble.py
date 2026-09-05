@@ -136,9 +136,11 @@ class EnsemblePredictor:
         iso_prob = None
         if self.models_loaded["isolation"] and realtime_features is not None:
             try:
+                from models.anomaly_detector.model import ANOMALY_FEATURES
+
                 frame = pd.DataFrame([realtime_features])
                 score = float(self.iso_model.decision_function(
-                    frame.to_numpy())[0])
+                    frame[ANOMALY_FEATURES].astype("float64"))[0])
                 iso_prob = round(float(1.0 / (1.0 + np.exp(score))), 4)
             except Exception as exc:
                 logger.debug(f"IsolationForest inference failed: {exc}")

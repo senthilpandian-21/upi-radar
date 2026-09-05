@@ -80,9 +80,13 @@ class OutageAnomalyDetector:
             frame = pd.DataFrame([features])
         else:
             frame = features
-        matrix = self._feature_matrix(frame)
-        if isinstance(frame, pd.DataFrame):
-            matrix = frame[ANOMALY_FEATURES].astype("float64").to_numpy()
+        if not isinstance(frame, pd.DataFrame):
+            frame = pd.DataFrame(frame, columns=ANOMALY_FEATURES)
+        missing = [c for c in ANOMALY_FEATURES if c not in frame.columns]
+        if missing:
+            raise ValueError(f"Missing anomaly features: {missing}")
+        # keep feature names so sklearn doesn't warn (fit used a DataFrame)
+        matrix = frame[ANOMALY_FEATURES].astype("float64")
         score = float(self.model.decision_function(matrix)[0])
         prob = 1.0 / (1.0 + np.exp(score))
         return round(float(prob), 4)

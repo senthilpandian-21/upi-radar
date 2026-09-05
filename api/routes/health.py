@@ -3,13 +3,11 @@ from __future__ import annotations
 
 import socket
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter
 
 from api.schemas.response import HealthResponse
-from config import (is_demo_mode, kafka_bootstrap_servers, models_available,
-                    redis_config)
+from config import is_demo_mode, kafka_bootstrap_servers, models_available
 
 router = APIRouter()
 

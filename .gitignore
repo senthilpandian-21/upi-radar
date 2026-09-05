@@ -23,6 +23,9 @@ data/synthetic/generated_data.csv
 data/processed/*.csv
 !data/processed/.gitkeep
 
+# Runtime demo database (recreated by `python db/setup.py`)
+data/*.db
+
 # Logs / reports (runtime artifacts)
 audit_logs/*.log
 reports/*.pdf

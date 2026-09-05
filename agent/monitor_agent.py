@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import threading
 from datetime import datetime
 
@@ -34,7 +33,6 @@ if str(ROOT) not in sys.path:
 
 from config import (audit_path, is_demo_mode, prediction_interval_seconds)
 
-logger = logging.getLogger(__name__)
 
 
 class MonitorAgent:
@@ -42,14 +40,14 @@ class MonitorAgent:
         self.demo_mode = is_demo_mode() if demo_mode is None else demo_mode
         from agent.alert_agent import AlertAgent
         from agent.router_agent import RouterAgent
-        from models.bank_health_scorer.scorer import BankHealthScorer
+        from models.bank_health_scorer.scorer import get_shared_scorer
         from models.ensemble import EnsemblePredictor
         from policy.bank_rules import BankRulesEngine
         from policy.gateway_rules import GatewayRulesEngine
         from policy.sre_alert_rules import SREAlertRules
 
         self.predictor = EnsemblePredictor()
-        self.health_scorer = BankHealthScorer()
+        self.health_scorer = get_shared_scorer()
         self.bank_rules = BankRulesEngine()
         self.gateway_rules = GatewayRulesEngine()
         self.sre_rules = SREAlertRules()
@@ -173,7 +171,11 @@ class MonitorAgent:
                 routed = await self.router_agent.route(
                     transaction=transaction,
                     bank_decision=bank_decision,
-                    gateway_decision=gateway_decision)
+                    gateway_decision=gateway_decision,
+                    outage_prob_at_time=round(self.current_outage_prob, 4),
+                    bank_health_at_time=float(bank_scores.get(
+                        str(transaction.get("bank", "")).upper(),
+                        {}).get("score", 100) or 100))
                 if bank_decision.requires_sre_alert \
                         or gateway_decision.requires_sre_alert:
                     await self.alert_agent.send_merchant_alert(
@@ -212,11 +214,44 @@ class MonitorAgent:
             and self.current_outage_prob > 0.5
 
     def _get_last_24hr_sequence(self):
-        """Production: last 24h from DB. Demo: simulated window."""
+        """Last-24h raw feature window for LSTM inference.
+
+        Priority: tail of the generated dataset (real feature columns,
+        raw values — the ensemble applies the training scaler itself).
+        Last resort (no dataset on disk): standardised noise so the
+        prediction loop keeps running.
+        """
         import numpy as np
 
+        from models.lstm_forecaster.model import FEATURE_COLUMNS, SEQUENCE_LENGTH
+
+        frame = self._sequence_from_dataset(FEATURE_COLUMNS, SEQUENCE_LENGTH)
+        if frame is not None:
+            return frame
         rng = np.random.default_rng(0)
-        return rng.normal(0, 1, (24, 18))
+        return rng.normal(0, 1, (SEQUENCE_LENGTH, len(FEATURE_COLUMNS)))
+
+    def _sequence_from_dataset(self, feature_columns: list, seq_len: int):
+        """Most recent ``seq_len`` raw rows for the highest-volume bank."""
+        try:
+            import pandas as pd
+
+            from config import SYNTHETIC_CSV
+
+            if not SYNTHETIC_CSV.exists():
+                return None
+            if getattr(self, "_dataset_tail", None) is None:
+                df = pd.read_csv(SYNTHETIC_CSV)
+                bank = df["bank"].value_counts().idxmax()
+                df = df[df["bank"] == bank].sort_values("datetime")
+                self._dataset_tail = df[list(feature_columns)].tail(seq_len)
+            tail = self._dataset_tail
+            if len(tail) < seq_len:
+                return None
+            return tail.to_numpy(dtype="float32")
+        except Exception as exc:
+            logger.debug(f"Dataset sequence unavailable ({exc})")
+            return None
 
     def _get_realtime_features(self) -> dict:
         import numpy as np

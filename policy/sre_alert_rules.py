@@ -6,8 +6,6 @@ sustained signals, and always returns a human-readable reason.
 """
 from __future__ import annotations
 
-from config import critical_health_threshold, warning_health_threshold
-
 # a "high probability sample" every PREDICTION_INTERVAL_MINUTES minutes;
 # ≥ 6 consecutive samples ≈ 30 minutes of sustained elevated risk.
 PREDICTION_INTERVAL_MINUTES = 5

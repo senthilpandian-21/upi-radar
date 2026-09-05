@@ -11,7 +11,6 @@ with the same 5-minute TTL semantics, so the demo never breaks.
 from __future__ import annotations
 
 import json
-import time
 from datetime import datetime
 
 from loguru import logger
@@ -163,6 +162,26 @@ class BankHealthScorer:
         for bank, data in scores.items():
             self.update_bank_score(bank, data["score"])
         return scores
+
+
+# ── shared instance ─────────────────────────────────────────────────────
+# Every component (API routes, RouterAgent, MonitorAgent) must see the SAME
+# cache — otherwise a freshly constructed scorer reports the default 100.0
+# for every bank and the audit trail records scores nobody actually used.
+_SHARED_SCORER: BankHealthScorer | None = None
+
+
+def get_shared_scorer() -> BankHealthScorer:
+    global _SHARED_SCORER
+    if _SHARED_SCORER is None:
+        _SHARED_SCORER = BankHealthScorer()
+    return _SHARED_SCORER
+
+
+def reset_shared_scorer() -> None:
+    """Test hook: drop the shared instance (fresh cache per test)."""
+    global _SHARED_SCORER
+    _SHARED_SCORER = None
 
 
 if __name__ == "__main__":  # pragma: no cover

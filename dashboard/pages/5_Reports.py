@@ -54,7 +54,7 @@ if reports:
         with c2:
             st.link_button("View", f"{API_BASE}/reports/download/"
                                    f"{report['filename']}",
-                           use_container_width=True)
+                           width="stretch")
         with c3:
             try:
                 payload = requests.get(
@@ -62,9 +62,9 @@ if reports:
                     timeout=5)
                 st.download_button("⬇", data=payload.content,
                                    file_name=report["filename"], mime="application/pdf",
-                                   use_container_width=True)
+                                   width="stretch")
             except Exception:
-                st.button("⬇", disabled=True, use_container_width=True)
+                st.button("⬇", disabled=True, width="stretch")
         st.divider()
 else:
     st.info("No reports yet — click 'Generate demo report' above or wait "

@@ -1,0 +1,1969 @@
+diff --git a/.gitignore b/.gitignore
+index 4a3a106..cd7ac49 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -23,6 +23,9 @@ data/synthetic/generated_data.csv
+ data/processed/*.csv
+ !data/processed/.gitkeep
+ 
++# Runtime demo database (recreated by `python db/setup.py`)
++data/*.db
++
+ # Logs / reports (runtime artifacts)
+ audit_logs/*.log
+ reports/*.pdf
+diff --git a/LICENSE b/LICENSE
+new file mode 100644
+index 0000000..04deb72
+--- /dev/null
++++ b/LICENSE
+@@ -0,0 +1,21 @@
++MIT License
++
++Copyright (c) 2026 UPI Radar Team
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+diff --git a/README.md b/README.md
+index dc5841c..76659c7 100644
+--- a/README.md
++++ b/README.md
+@@ -1,12 +1,25 @@
+-# ⚡ UPI RADAR — AI-Powered Payment Outage Predictor & Smart Router
++<div align="center">
+ 
+-> **Predict UPI outages 2 hours BEFORE they happen. Route transactions intelligently WITHIN Razorpay's ecosystem. Achieve near-zero payment failures.**
++# ⚡ UPI RADAR
+ 
+-**Razorpay AI Buildathon 2026 · Track 5 (Open Track)** · AI Agent System · Fintech / Payment Infrastructure
++### AI-Powered Payment Outage Predictor & Smart Router
++
++**Predict UPI outages 2 hours before they happen · Route transactions intelligently within Razorpay's ecosystem · Convert failures into queues, never silent drops**
++
++[![Tests](https://img.shields.io/badge/tests-72_passed-brightgreen)](#-testing)
++[![Python](https://img.shields.io/badge/python-3.10_%7C_3.11-blue)](#-prerequisites)
++[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688?logo=fastapi&logoColor=white)](#-api-reference)
++[![Streamlit](https://img.shields.io/badge/Streamlit-1.49+-FF4B4B?logo=streamlit&logoColor=white)](#-dashboard)
++[![Docker](https://img.shields.io/badge/Docker-compose_ready-2496ED?logo=docker&logoColor=white)](#option-c--docker-full-stack)
++[![License: MIT](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
++
++*Razorpay AI Buildathon 2026 · Track 5 (Open Track) · AI Agent System · Fintech / Payment Infrastructure*
++
++</div>
+ 
+ ---
+ 
+-## 🎯 Problem Statement
++## 🎯 The Problem
+ 
+ | Statistic | Value |
+ |---|---|
+@@ -16,7 +29,23 @@
+ | Customers who never return after a failed payment | **62%** |
+ | When outages strike | Predictably: **FY-end, salary days, festivals, 6–9 PM peak** |
+ 
+-**Current systems are REACTIVE** — they detect failure *after* it happens, then scramble. UPI Radar is **PROACTIVE**: it forecasts, prevents, and routes around failures before merchants feel them — while keeping every transaction **inside Razorpay** (no competitor routing, no revenue leakage).
++Today's systems are **reactive** — they detect failure *after* it happens, then scramble.
++UPI Radar is **proactive**: it forecasts, prevents, and routes around failures before
++merchants feel them — while keeping every transaction **inside Razorpay**
++(no competitor routing, no revenue leakage).
++
++---
++
++## ✨ Highlights
++
++- 🔮 **2-hour-ahead outage forecasting** — weighted ensemble: LSTM (50%) + Prophet (30%) + Isolation Forest (20%)
++- 🏦 **Bank Health Scoring (0–100)** — deterministic, Redis-cached, weighted 15-min / 1-hr / historical technical-decline
++- 🔀 **Smart routing ladder** — bank→bank failover, UPI→card/netbanking/wallet/NEFT-IMPS rail switching, cascade retries
++- ⏳ **Graceful degradation** — transactions are queued with exponential backoff and replayed, never silently dropped
++- 📜 **Fully auditable** — every decision persisted to PostgreSQL *and* JSON-lines audit logs; compliance rules are hard-coded, never ML
++- 📄 **Auto-generated post-outage PDF reports**
++- 🤖 **Six cooperating agents** — Monitor · Router · Alert · Queue · Report · Retrainer (self-heals when rolling accuracy < 80%)
++- 🧪 **Runs anywhere** — demo mode needs zero infrastructure: no Kafka/Postgres/Redis/keys/models required (all have built-in fallbacks)
+ 
+ ---
+ 
+@@ -31,7 +60,7 @@
+ ├──────────────────────────────────────────────────────────────────────────┤
+ │ LAYER 2 · AI MODEL LAYER                                                  │
+ │  LSTM (24h sequences) │ Prophet (seasonality) │ Isolation Forest (stream)│
+-│            └─────────────── Ensemble: 0.5·LSTM + 0.3·Prophet + 0.2·IF ──┘
++│            └─────────────── Ensemble: 0.5·LSTM + 0.3·Prophet + 0.2·IF ──┘│
+ │  BankHealthScorer (0-100, Redis-cached, weighted 15m/1h/historical)       │
+ ├──────────────────────────────────────────────────────────────────────────┤
+ │ LAYER 3 · DETERMINISTIC POLICY ENGINE (no ML — fully auditable)           │
+@@ -47,6 +76,7 @@
+ ```
+ 
+ **The intelligent routing ladder (all within Razorpay):**
++
+ ```
+ Bank A critical → Bank B/C (healthiest)      (Bank Rules B1–B5)
+ UPI at risk    → Card / Netbanking / Wallet  (Gateway Rules G1–G3)
+@@ -54,72 +84,197 @@ Everything busy → Queue with exponential backoff → retry → alternate rail
+ Still failing  → SRE page + merchant alert + post-outage PDF report
+ ```
+ 
+----
+-
+-## 🧠 AI Judgment (why these models)
++### 🧠 Model choices (why these models)
+ 
+ | Signal | Model | Why |
+ |---|---|---|
+-| Past 24 h per-bank telemetry | **LSTM** (3 layers, 128→64→32) | Sequence → sequence risk; catches ramp-ups before spikes |
++| Past 24 h per-bank telemetry | **LSTM** (3 layers, 128→64→32) | Sequence → risk; catches ramp-ups before spikes |
+ | Calendar seasonality | **Prophet** (salary/FY-end/festival regressors) | Outages are *scheduled by the calendar* — learn the pattern |
+ | Live stream deviation | **Isolation Forest** | 5-feature anomaly score every prediction tick |
+-| Final probability | **Weighted ensemble** | 50/30/20 blend + GREEN/YELLOW/RED risk levels |
++| Final probability | **Weighted ensemble** | 50/30/20 blend → GREEN/YELLOW/RED risk levels |
+ | Bank health 0–100 | **Deterministic scorer** | 0.5×15min + 0.3×1hr + 0.2×historical TD% — no black box |
+ | Compliance decisions | **Hard-coded policy rules** | AI never makes audit/compliance decisions (B1–B5, G1–G3) |
+ 
+ ---
+ 
++## ✅ Prerequisites
++
++| Requirement | Needed for | Notes |
++|---|---|---|
++| **Python 3.10 or 3.11** | Everything | ⚠️ **3.12/3.13 cannot install the full ML stack** (`tensorflow==2.15.0`, `prophet==1.1.5` have no wheels). Demo mode works on newer Pythons with `requirements-runtime.txt`. |
++| Git | Clone | — |
++| ~1 GB disk (demo) / ~4 GB (full ML) | pip installs | TensorFlow CPU is enough — **no GPU required** |
++| Docker Desktop | Option C only | Full Kafka + PostgreSQL + Redis stack |
++| Razorpay **test** keys | "Live keys" mode only | Free: [dashboard.razorpay.com](https://dashboard.razorpay.com) → Settings → API Keys |
++| MSVC Build Tools (Windows) | Prophet training on Windows | Or use WSL2, where `pip install prophet` just works |
++
++---
++
+ ## 🚀 Quick Start
+ 
+-### Option A — Demo mode (no keys, no infra, no training — 2 minutes)
++### Option A — Demo mode (no keys, no infra, no training — ~2 minutes)
++
++Works out of the box: every external dependency (Kafka, PostgreSQL, Redis,
++Razorpay, trained models) has a built-in fallback.
+ 
+ ```bash
+-python -m venv venv && source venv/bin/activate
+-pip install -r requirements.txt        # or the lighter requirements-runtime.txt
+-
+-python db/setup.py                     # SQLite fallback auto-used
+-python data/synthetic/synthetic_generator.py     # 70,080 rows
+-python -m models.anomaly_detector.train         # quick sklearn model (fast)
+-
+-# Terminal 1 — API
+-uvicorn api.main:app --reload --port 8000
+-# Terminal 2 — Agent (feeds audit logs with live demo traffic)
+-python -m agent.monitor_agent
+-# Terminal 3 — Dashboard
+-streamlit run dashboard/app.py --server.port 8501
++git clone https://github.com/senthilpandian-21/upi-radar.git
++cd upi-radar
++
++# 1. Virtual environment (Python 3.10/3.11)
++python -m venv venv
++source venv/bin/activate            # Windows: venv\Scripts\activate
++
++# 2. Dependencies (lightweight runtime set)
++pip install -r requirements-runtime.txt
++
++# 3. Database + data + quick model
++python db/setup.py                              # SQLite fallback auto-used
++python data/synthetic/synthetic_generator.py    # 70,080 hourly rows, 1 year
++python -m models.anomaly_detector.train         # IsolationForest (~3 s)
++
++# 4. Run the three services (one per terminal, venv activated in each)
++uvicorn api.main:app --reload --port 8000       # Terminal 1 — REST API
++python -m agent.monitor_agent                   # Terminal 2 — live agent + audit feed
++streamlit run dashboard/app.py --server.port 8501  # Terminal 3 — dashboard
+ ```
+ 
+-Open **http://localhost:8501** → the dashboard works even with everything off (offline simulation), and lights up with live data once the API/agent run.
++| URL | What |
++|---|---|
++| **http://localhost:8501** | Streamlit dashboard (works even with everything else off) |
++| **http://localhost:8000/docs** | Interactive API docs (Swagger UI) |
++| **http://localhost:8000/health** | Component health (PG/Redis/Kafka/models) |
++
++The monitor agent runs a **self-demonstrating boot scenario** (critical bank →
++reroute → cascade → queue), so the dashboard, audit logs and history endpoints
++show live activity within seconds.
+ 
+ ### Option B — Full pipeline (train all 3 models)
+ 
++Requires **Python 3.10/3.11** and the full dependency set:
++
+ ```bash
+-pip install -r requirements.txt        # includes tensorflow + prophet (Python 3.10/3.11)
++pip install -r requirements.txt                 # incl. tensorflow + prophet (~3 GB)
++
+ python data/synthetic/synthetic_generator.py
+-python models/lstm_forecaster/train.py          # → saved_model/lstm_outage_model.h5
+-python models/prophet_forecaster/train.py       # → saved_model/prophet_model.pkl
+-python models/anomaly_detector/train.py         # → saved_model/isolation_forest.pkl
++python -m models.lstm_forecaster.train          # → saved_model/lstm_outage_model.h5
++python -m models.prophet_forecaster.train       # → saved_model/prophet_model.pkl
++python -m models.anomaly_detector.train         # → saved_model/isolation_forest.pkl
+ ```
+ 
+-The ensemble automatically loads the trained artifacts and switches off demo fallbacks (`GET /predict/outage` shows `models_loaded`).
++The ensemble auto-loads trained artifacts and switches off demo fallbacks —
++verify with `GET /predict/outage` → `"models_loaded": {"lstm": true, …}`.
++LSTM training takes ~10–40 min on a laptop CPU (no GPU needed).
+ 
+-### Option C — Docker (full stack)
++### Option C — Docker (full stack: Kafka + PostgreSQL + Redis)
+ 
+ ```bash
+-cp .env.example .env
+-docker-compose up -d zookeeper kafka postgres redis   # infra only
+-docker-compose up --build                              # everything
++cp .env.example .env                            # edit values as needed
++docker compose up -d zookeeper kafka postgres redis   # infra only (optional)
++docker compose up --build                             # everything
++```
++
++Services start in dependency order with healthchecks — the API/agent wait for
++PostgreSQL/Redis/Kafka to be **ready**, so the full stack never silently
++falls back to SQLite.
++
++> ℹ️ The Docker image installs `requirements-runtime.txt` (fast, CPU-friendly).
++> Uncomment the full-requirements lines in the `Dockerfile` to train in-container.
++
++### Live Razorpay test keys (optional)
++
++Set `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` (`rzp_test_…`) in `.env` and
++`DEMO_MODE=false`. The pipeline then polls `GET /v1/payments/downtimes` every
++5 minutes and payment attempts execute against the Razorpay test API.
++
++---
++
++## 🌐 API Reference
++
++Base URL: `http://localhost:8000` · Interactive docs: `/docs`
++
++| Method | Endpoint | Purpose |
++|---|---|---|
++| GET | `/predict/outage` | Ensemble outage probability (2 h horizon) + recommendation |
++| GET | `/predict/history?limit=` | Recent model predictions (DB, falls back to audit log) |
++| POST | `/route/transaction` | Smart-route one transaction (see below) |
++| GET | `/route/history?limit=` | Audited routing decisions |
++| GET | `/banks/health` | All bank health scores (0–100) + best/critical/warning lists |
++| GET | `/banks/health/{bank}` | Single bank health detail (404 for unknown banks) |
++| GET | `/alerts/active` · `/alerts/history` | SRE/merchant alerts |
++| GET | `/reports/list` · `/reports/download/{file}` | Generated PDF reports |
++| POST | `/reports/generate?hours_ago=2` | Build a post-outage PDF from the audit trail |
++| GET | `/health` · `/healthz` | Component-level and liveness health |
++
++### `POST /route/transaction`
++
++```jsonc
++// Request
++{
++  "transaction": {
++    "transaction_id": "txn_demo_001",     // optional
++    "amount": 500000,                      // paise (₹5,000.00)
++    "currency": "INR",
++    "method": "upi",                       // upi | card | netbanking | wallet | neft_imps
++    "bank": "BOB"                          // remitter bank / PSP handle
++  },
++  "simulate": false                        // true → decide & report, never execute/queue
++}
++```
++
++```jsonc
++// Response (200)
++{
++  "transaction_id": "txn_demo_001",
++  "original_bank": "BOB",
++  "original_method": "upi",
++  "action": "ROUTE",                       // PROCEED | ROUTE | QUEUE
++  "routed_to_bank": "KOTAK",
++  "routed_to_method": "upi",
++  "reason": "RULE B4: BOB health score 55.5% < 70% → route via KOTAK",
++  "rule_id": "B4",
++  "outage_probability": 0.1815,
++  "success": true,
++  "queued": false,
++  "risk_level": "GREEN",
++  "severity": "MEDIUM",
++  "timestamp": "2026-09-05T07:44:27.126075"
++}
+ ```
+ 
+-> ℹ️ Heavy ML deps (tensorflow/prophet) are optional at runtime — `Dockerfile` installs `requirements-runtime.txt` by default so containers boot fast. Uncomment the full `requirements.txt` line for in-container training.
++---
+ 
+-### Test mode — real Razorpay keys
++## 📊 Dashboard
+ 
+-Set `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` (rzp_test_…) in `.env`, set `DEMO_MODE=false`. The pipeline polls `GET /v1/payments/downtimes` every 5 min and routing executes against the Razorpay test API.
++Five Streamlit pages, live against the API (with an offline simulation mode if
++the API is down):
++
++| Page | Shows |
++|---|---|
++| 📊 **Overview** | Live outage gauge + ensemble model breakdown |
++| 🏦 **Bank Health** | Per-bank scores, best fallback banks, critical/warning lists |
++| 📈 **Predictions** | Outage probability history + risk episodes |
++| 🔄 **Routing Log** | Every smart-routing decision, fully audited |
++| 📄 **Reports** | Auto-generated post-outage PDFs (download in one click) |
+ 
+ ---
+ 
+-## 📁 Project Map
++## 🧪 Testing
++
++```bash
++pytest tests/ -v        # 72 tests · no infra required · ~50 s
++```
++
++Coverage: synthetic generator (row counts, columns, outage injection, known
++outage dates) · health scorer formula & statuses · sequence shapes · ensemble
++risk bands & determinism · **every policy rule** (B1–B5, G1–G3, S1–S3, queue
++backoff/abandon) · router cascade + queue fallback · alert/report/retrainer
++agents · all API endpoints incl. the `/route/transaction` request contract and
++`simulate` semantics.
++
++---
++
++## 📁 Project Structure
+ 
+ ```
+ upi-radar/
+@@ -134,55 +289,52 @@ upi-radar/
+ ├── db/                        # SQLAlchemy models + 001_initial_schema.sql + setup.py
+ ├── audit_logs/                # JSON-lines audit: routing_decisions / alerts / predictions
+ ├── reports/                   # auto-generated post-outage PDFs
+-├── tests/                     # 50+ pytest cases (models/policy/routing/api/agents)
++├── tests/                     # 72 pytest cases (models/policy/routing/api/agents)
+ └── notebooks/                 # 01 EDA → 05 evaluation
+ ```
+ 
+ ---
+ 
+-## 🌐 API Reference
++## ⚙️ Configuration
+ 
+-| Method | Endpoint | Purpose |
+-|---|---|---|
+-| GET | `/predict/outage` | Ensemble outage probability (2 h horizon) + recommendation |
+-| GET | `/predict/history?limit=` | Recent model predictions |
+-| POST | `/route/transaction` | `{transaction:{amount, method, bank, …}}` → routing decision + execution |
+-| GET | `/route/history?limit=` | Audited routing decisions |
+-| GET | `/banks/health` · `/banks/health/{bank}` | Bank health scores 0–100 |
+-| GET | `/alerts/active` · `/alerts/history` | SRE/merchant alerts |
+-| GET | `/reports/list` · `/reports/download/{file}` | PDF reports |
+-| POST | `/reports/generate` | Demo post-outage report |
+-| GET | `/health` | Component health (PG/Redis/Kafka/models) |
+-
+-Interactive docs: **http://localhost:8000/docs**
+-
+----
+-
+-## 🧪 Tests
+-
+-```bash
+-pytest tests/ -v          # no infra required — everything falls back to demo mode
+-```
++All settings are environment variables (`.env` supported — copy `.env.example`).
++Everything has a safe default; the system boots in demo mode with an empty `.env`.
+ 
+-Coverage: generator row-count/columns/outage injection · scorer formula/status · sequence shapes ·
+-ensemble mock keys/risk bands · every policy rule (B1–B5, G1–G3, S1–S3, queue) ·
+-router cascade + queue fallback · alert/report/retrainer agents · all API endpoints.
++| Variable | Default | Purpose |
++|---|---|---|
++| `DEMO_MODE` | `true` | Simulate stream + fallbacks; no keys/infra needed |
++| `RAZORPAY_KEY_ID` / `_SECRET` | — | `rzp_test_…` keys enable the live pipeline |
++| `DATABASE_URL` | local PG DSN | Any SQLAlchemy URL; unreachable PG → SQLite fallback |
++| `REDIS_HOST` / `REDIS_PORT` | `localhost:6379` | Health cache; unreachable → in-process cache |
++| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Stream; unreachable → spool/demo stream |
++| `OUTAGE_PROBABILITY_THRESHOLD` | `0.70` | RED risk / SRE-page threshold |
++| `BANK_HEALTH_CRITICAL_THRESHOLD` | `30` | Rule B1 (critical) — read at request time |
++| `BANK_HEALTH_WARNING_THRESHOLD` | `70` | Rule B4 (degraded) — read at request time |
++| `QUEUE_MAX_WAIT_SECONDS` | `120` | Max queue wait before abandon + alternate-method advice |
++| `PREDICTION_INTERVAL_SECONDS` | `300` | Agent prediction cadence (10 s in demo mode) |
++| `SMTP_*` / `TWILIO_*` | — | Real email/SMS alerts; unset → logged, never sent |
+ 
+ ---
+ 
+-## 🐳 docker-compose Services
++## 🛠️ Troubleshooting
+ 
+-`zookeeper` · `kafka` (confluent 7.5) · `postgres:16` · `redis:7` ·
+-`api` (uvicorn :8000) · `dashboard` (streamlit :8501) · `agent` (monitor agent)
++| Symptom | Fix |
++|---|---|
++| `pip install -r requirements.txt` fails on `tensorflow==2.15.0` | You're on Python 3.12+. Use **3.10/3.11** for the full stack, or `requirements-runtime.txt` (demo mode) on any version. |
++| Prophet install fails on Windows | Install *MSVC C++ Build Tools* (Visual Studio Installer → “Desktop development with C++”), or use WSL2. |
++| `IsADirectoryError: … generated_data.csv` | A stale directory from older revisions: `rm -rf data/synthetic/generated_data.csv` (Windows: `rmdir /s`), then re-run the generator. Fixed in current `config.py`. |
++| Port already in use | `uvicorn … --port 8001` / `streamlit run … --server.port 8502`, or free the port. |
++| Dashboard shows old demo rows | Delete `data/upi_radar_demo.db` (runtime artifact, git-ignored) and restart — `db/setup.py` recreates + re-seeds it. |
++| `/health` says `postgres: SQLite (demo fallback)` | Expected without Postgres. For the real stack use Docker Option C or set `DATABASE_URL`. |
+ 
+ ---
+ 
+-## 🛡️ Reliability & Audit (evaluation-criteria aligned)
++## 🛡️ Reliability & Audit
+ 
+ | Criterion | Implementation |
+ |---|---|
+ | Failure recovery | Cascade routing (3 attempts) → queuing w/ exponential backoff → alternate-method suggestion |
+-| Auditability | Every routing decision, alert and prediction → DB **and** `audit_logs/*.log` JSON |
++| Auditability | Every routing decision, alert and prediction → DB **and** `audit_logs/*.log` JSON, recording the exact health score & outage probability the rules used |
+ | Deterministic policy | Rules B1–B5 / G1–G3 are pure thresholds — zero ML in compliance paths |
+ | No competitor routing | Routes only between Razorpay PSP banks & rails (UPI/card/NB/wallet/NEFT-IMPS) |
+ | Self-healing | RetrainerAgent auto-retrains when rolling accuracy < 80% |
+@@ -191,20 +343,36 @@ router cascade + queue fallback · alert/report/retrainer agents · all API endp
+ 
+ ---
+ 
++## 🗺️ Roadmap
++
++- [ ] Real-time NPCI bank-wise telemetry ingestion (contract pending)
++- [ ] Per-bank LSTM heads (currently one system-wide sequence model)
++- [ ] Webhook delivery of merchant routing-change alerts
++- [ ] Load-testing harness (target: 5k decisions/s on the policy path)
++- [ ] Grafana/Prometheus exporter for the SRE stack
++
++---
++
+ ## ⚠️ Disclaimer
+ 
+-UPI Radar is a **buildathon submission / research prototype**. It uses a realistic
+-synthetic dataset (seeded from public NPCI statistics & reported outage events) and
+-Razorpay **Test Mode** APIs. Production deployment requires the Razorpay SRE team's
+-risk review, real telemetry contracts, and load-testing — this is a demo of the
+-*architecture and ML approach*, not production code.
++UPI Radar is a **buildathon submission / research prototype**. It uses a
++realistic synthetic dataset (seeded from public NPCI statistics & reported
++outage events) and Razorpay **Test Mode** APIs. Production deployment requires
++the Razorpay SRE team's risk review, real telemetry contracts, and
++load-testing — this is a demonstration of the *architecture and ML approach*,
++not production code.
+ 
+ ---
+ 
++## 📄 License
++
++MIT © 2026 UPI Radar Team — see [LICENSE](LICENSE).
++
+ ## 👥 Team
+ 
+ | | |
+ |---|---|
+ | Team | UPI Radar |
+ | Track | Razorpay AI Buildathon 2026 — Track 5 (Open Track) |
+-| Contact | your-team@example.com |
++| Repository | [github.com/senthilpandian-21/upi-radar](https://github.com/senthilpandian-21/upi-radar) |
++| Issues & feedback | [Open an issue](https://github.com/senthilpandian-21/upi-radar/issues) |
+diff --git a/agent/alert_agent.py b/agent/alert_agent.py
+index 0c0bb1f..bf9e960 100644
+--- a/agent/alert_agent.py
++++ b/agent/alert_agent.py
+@@ -7,7 +7,6 @@ logged — never raised — so alerting can never take the system down.
+ from __future__ import annotations
+ 
+ import json
+-import logging
+ import os
+ import smtplib
+ from datetime import datetime
+@@ -26,7 +25,6 @@ except Exception:  # pragma: no cover
+     TwilioClient = None
+     TWILIO_AVAILABLE = False
+ 
+-logger = logging.getLogger(__name__)
+ 
+ 
+ class AlertAgent:
+diff --git a/agent/monitor_agent.py b/agent/monitor_agent.py
+index 97df2d6..0cf1d17 100644
+--- a/agent/monitor_agent.py
++++ b/agent/monitor_agent.py
+@@ -14,7 +14,6 @@ from __future__ import annotations
+ 
+ import asyncio
+ import json
+-import logging
+ import threading
+ from datetime import datetime
+ 
+@@ -34,7 +33,6 @@ if str(ROOT) not in sys.path:
+ 
+ from config import (audit_path, is_demo_mode, prediction_interval_seconds)
+ 
+-logger = logging.getLogger(__name__)
+ 
+ 
+ class MonitorAgent:
+@@ -42,14 +40,14 @@ class MonitorAgent:
+         self.demo_mode = is_demo_mode() if demo_mode is None else demo_mode
+         from agent.alert_agent import AlertAgent
+         from agent.router_agent import RouterAgent
+-        from models.bank_health_scorer.scorer import BankHealthScorer
++        from models.bank_health_scorer.scorer import get_shared_scorer
+         from models.ensemble import EnsemblePredictor
+         from policy.bank_rules import BankRulesEngine
+         from policy.gateway_rules import GatewayRulesEngine
+         from policy.sre_alert_rules import SREAlertRules
+ 
+         self.predictor = EnsemblePredictor()
+-        self.health_scorer = BankHealthScorer()
++        self.health_scorer = get_shared_scorer()
+         self.bank_rules = BankRulesEngine()
+         self.gateway_rules = GatewayRulesEngine()
+         self.sre_rules = SREAlertRules()
+@@ -173,7 +171,11 @@ class MonitorAgent:
+                 routed = await self.router_agent.route(
+                     transaction=transaction,
+                     bank_decision=bank_decision,
+-                    gateway_decision=gateway_decision)
++                    gateway_decision=gateway_decision,
++                    outage_prob_at_time=round(self.current_outage_prob, 4),
++                    bank_health_at_time=float(bank_scores.get(
++                        str(transaction.get("bank", "")).upper(),
++                        {}).get("score", 100) or 100))
+                 if bank_decision.requires_sre_alert \
+                         or gateway_decision.requires_sre_alert:
+                     await self.alert_agent.send_merchant_alert(
+@@ -212,11 +214,44 @@ class MonitorAgent:
+             and self.current_outage_prob > 0.5
+ 
+     def _get_last_24hr_sequence(self):
+-        """Production: last 24h from DB. Demo: simulated window."""
++        """Last-24h raw feature window for LSTM inference.
++
++        Priority: tail of the generated dataset (real feature columns,
++        raw values — the ensemble applies the training scaler itself).
++        Last resort (no dataset on disk): standardised noise so the
++        prediction loop keeps running.
++        """
+         import numpy as np
+ 
++        from models.lstm_forecaster.model import FEATURE_COLUMNS, SEQUENCE_LENGTH
++
++        frame = self._sequence_from_dataset(FEATURE_COLUMNS, SEQUENCE_LENGTH)
++        if frame is not None:
++            return frame
+         rng = np.random.default_rng(0)
+-        return rng.normal(0, 1, (24, 18))
++        return rng.normal(0, 1, (SEQUENCE_LENGTH, len(FEATURE_COLUMNS)))
++
++    def _sequence_from_dataset(self, feature_columns: list, seq_len: int):
++        """Most recent ``seq_len`` raw rows for the highest-volume bank."""
++        try:
++            import pandas as pd
++
++            from config import SYNTHETIC_CSV
++
++            if not SYNTHETIC_CSV.exists():
++                return None
++            if getattr(self, "_dataset_tail", None) is None:
++                df = pd.read_csv(SYNTHETIC_CSV)
++                bank = df["bank"].value_counts().idxmax()
++                df = df[df["bank"] == bank].sort_values("datetime")
++                self._dataset_tail = df[list(feature_columns)].tail(seq_len)
++            tail = self._dataset_tail
++            if len(tail) < seq_len:
++                return None
++            return tail.to_numpy(dtype="float32")
++        except Exception as exc:
++            logger.debug(f"Dataset sequence unavailable ({exc})")
++            return None
+ 
+     def _get_realtime_features(self) -> dict:
+         import numpy as np
+diff --git a/agent/queue_agent.py b/agent/queue_agent.py
+index 1247062..5b3f35a 100644
+--- a/agent/queue_agent.py
++++ b/agent/queue_agent.py
+@@ -9,8 +9,7 @@ from __future__ import annotations
+ 
+ import asyncio
+ import json
+-import logging
+-from datetime import datetime, timedelta
++from datetime import datetime
+ 
+ from loguru import logger
+ 
+@@ -36,7 +35,6 @@ except Exception:  # pragma: no cover
+     razorpay = None
+     RAZORPAY_AVAILABLE = False
+ 
+-logger = logging.getLogger(__name__)
+ 
+ 
+ class QueueAgent:
+diff --git a/agent/report_agent.py b/agent/report_agent.py
+index d344fe3..3107757 100644
+--- a/agent/report_agent.py
++++ b/agent/report_agent.py
+@@ -13,7 +13,6 @@ from pathlib import Path
+ from loguru import logger
+ 
+ import sys
+-from pathlib import Path
+ 
+ ROOT = Path(__file__).resolve()
+ for _ in range(4):
+diff --git a/agent/retrainer_agent.py b/agent/retrainer_agent.py
+index 2951e83..20281ec 100644
+--- a/agent/retrainer_agent.py
++++ b/agent/retrainer_agent.py
+@@ -8,7 +8,6 @@ training run can never block the agent loop.
+ from __future__ import annotations
+ 
+ import json
+-import logging
+ import subprocess
+ import sys
+ from datetime import datetime, timedelta
+@@ -16,9 +15,6 @@ from pathlib import Path
+ 
+ from loguru import logger
+ 
+-import sys
+-from pathlib import Path
+-
+ ROOT = Path(__file__).resolve()
+ for _ in range(4):
+     if (ROOT / "config.py").exists():
+@@ -30,7 +26,6 @@ if str(ROOT) not in sys.path:
+ 
+ from config import PROJECT_ROOT, audit_path
+ 
+-logger = logging.getLogger(__name__)
+ 
+ ACCURACY_RETRAIN_THRESHOLD = 0.80
+ MIN_LABELLED_SAMPLES = 20
+diff --git a/agent/router_agent.py b/agent/router_agent.py
+index a74b27a..e111df7 100644
+--- a/agent/router_agent.py
++++ b/agent/router_agent.py
+@@ -10,7 +10,6 @@ Everything stays inside Razorpay's ecosystem.
+ from __future__ import annotations
+ 
+ import json
+-import logging
+ from datetime import datetime
+ 
+ from loguru import logger
+@@ -29,7 +28,6 @@ if str(ROOT) not in sys.path:
+ 
+ from config import audit_path
+ 
+-logger = logging.getLogger(__name__)
+ 
+ 
+ class RouterAgent:
+@@ -37,13 +35,19 @@ class RouterAgent:
+ 
+     # ── entry point ─────────────────────────────────────────────────
+     async def route(self, transaction: dict,
+-                    bank_decision=None, gateway_decision=None) -> dict:
++                    bank_decision=None, gateway_decision=None,
++                    outage_prob_at_time: float | None = None,
++                    bank_health_at_time: float | None = None) -> dict:
+         """
+         Resolve final (bank, method) from both decision layers, execute
+         cascade routing and persist the audit trail.
++
++        ``outage_prob_at_time`` / ``bank_health_at_time`` should carry the
++        exact values the policy engine used so the audit row matches the
++        recorded reason; when omitted they are read from the shared scorer.
+         Returns {success, bank_used, method_used, queued, attempts, reason}.
+         """
+-        from models.bank_health_scorer.scorer import BankHealthScorer
++        from models.bank_health_scorer.scorer import get_shared_scorer
+ 
+         original_bank = str(transaction.get("bank", "UNKNOWN")).upper()
+         original_method = transaction.get("method", "upi")
+@@ -55,18 +59,20 @@ class RouterAgent:
+                  (" | " + gateway_decision.reason if gateway_decision is not None
+                   and getattr(gateway_decision, "reason", "") else "")
+ 
+-        scorer = BankHealthScorer()
+-        bank_health_at_time = scorer.get_bank_score(original_bank).get("score")
++        if bank_health_at_time is None:
++            scorer = get_shared_scorer()
++            bank_health_at_time = scorer.get_bank_score(original_bank).get("score")
+ 
+         if final_bank == "QUEUE":
+             queued = await self._queue_transaction(transaction, reason)
+             result = {"success": False, "bank_used": None, "method_used": None,
+-                      "queued": queued, "attempts": [], "reason": reason}
++                    "queued": queued, "attempts": [], "reason": reason}
+             self._log_routing_decision(
+                 transaction_id=transaction.get("id") or transaction.get("transaction_id"),
+                 original_bank=original_bank, routed_to_bank=None,
+                 original_method=original_method, routed_to_method=final_method,
+-                reason=reason, success=False, queued=queued,
++                reason=reason, outage_prob_at_time=outage_prob_at_time,
++                success=False, queued=queued,
+                 bank_health_score=bank_health_at_time)
+             return result
+ 
+@@ -80,7 +86,8 @@ class RouterAgent:
+             routed_to_bank=attempt.get("bank_used"),
+             original_method=original_method,
+             routed_to_method=attempt.get("method_used", final_method),
+-            reason=reason, success=attempt.get("success", False),
++            reason=reason, outage_prob_at_time=outage_prob_at_time,
++            success=attempt.get("success", False),
+             queued=attempt.get("queued", False),
+             bank_health_score=bank_health_at_time)
+         return {**attempt, "reason": reason}
+@@ -93,9 +100,9 @@ class RouterAgent:
+         Try: target_bank → next healthiest banks (≤ MAX_CASCADE_ATTEMPTS).
+         If every attempt fails → queue the transaction for later retry.
+         """
+-        from models.bank_health_scorer.scorer import BankHealthScorer
++        from models.bank_health_scorer.scorer import get_shared_scorer
+ 
+-        scorer = BankHealthScorer()
++        scorer = get_shared_scorer()
+         original_bank = str(transaction.get("bank", "UNKNOWN")).upper()
+         healthy = scorer.get_best_available_banks(min_score=50.0,
+                                                   exclude=[original_bank])
+diff --git a/api/routes/banks.py b/api/routes/banks.py
+index 7fd8670..88eeb90 100644
+--- a/api/routes/banks.py
++++ b/api/routes/banks.py
+@@ -2,23 +2,18 @@
+ from __future__ import annotations
+ 
+ from datetime import datetime
+-from typing import Optional
+ 
+ from fastapi import APIRouter, HTTPException
+ 
+ from api.schemas.response import BankHealthResponse
+-from models.bank_health_scorer.scorer import BankHealthScorer
++from models.bank_health_scorer.scorer import get_shared_scorer
+ 
+ router = APIRouter()
+ 
+-_scorer: Optional[BankHealthScorer] = None
+ 
+-
+-def get_scorer() -> BankHealthScorer:
+-    global _scorer
+-    if _scorer is None:
+-        _scorer = BankHealthScorer()
+-    return _scorer
++def get_scorer():
++    """Shared scorer — the same cache instance the agents update."""
++    return get_shared_scorer()
+ 
+ 
+ def _warm_scores() -> dict:
+@@ -51,12 +46,18 @@ async def get_all_bank_health() -> dict:
+ 
+ @router.get("/health/{bank_name}", summary="Single bank health detail")
+ async def get_bank_health(bank_name: str) -> dict:
++    from models.bank_health_scorer.bank_config import ALL_BANKS
++
+     scorer = get_scorer()
+     bank = bank_name.upper()
+     data = scorer.get_bank_score(bank)
+     if data.get("source") == "default":
+-        raise HTTPException(status_code=404,
+-                            detail=f"No telemetry for bank '{bank}'")
++        if bank not in ALL_BANKS:
++            raise HTTPException(status_code=404,
++                                detail=f"No telemetry for bank '{bank}'")
++        # known bank, cache not warm yet (fresh boot) → seed simulation
++        _warm_scores()
++        data = scorer.get_bank_score(bank)
+     return {"bank": bank, **data,
+             "timestamp": datetime.now().isoformat()}
+ 
+diff --git a/api/routes/health.py b/api/routes/health.py
+index 76c1018..0abc8d7 100644
+--- a/api/routes/health.py
++++ b/api/routes/health.py
+@@ -3,13 +3,11 @@ from __future__ import annotations
+ 
+ import socket
+ from datetime import datetime
+-from typing import Optional
+ 
+ from fastapi import APIRouter
+ 
+ from api.schemas.response import HealthResponse
+-from config import (is_demo_mode, kafka_bootstrap_servers, models_available,
+-                    redis_config)
++from config import is_demo_mode, kafka_bootstrap_servers, models_available
+ 
+ router = APIRouter()
+ 
+diff --git a/api/routes/reports.py b/api/routes/reports.py
+index 3e19bb8..fbc2412 100644
+--- a/api/routes/reports.py
++++ b/api/routes/reports.py
+@@ -2,7 +2,7 @@
+ from __future__ import annotations
+ 
+ from datetime import datetime, timedelta
+-from typing import Optional
++from pathlib import Path
+ 
+ from fastapi import APIRouter, HTTPException
+ from fastapi.responses import FileResponse
+@@ -21,10 +21,12 @@ async def list_reports() -> dict:
+ 
+ @router.get("/download/{filename}", summary="Download a report PDF")
+ async def download_report(filename: str) -> FileResponse:
+-    # basic traversal guard
+-    safe = filename.replace("/", "").replace("\\", "")
+-    path = reports_dir() / safe
+-    if not path.exists() or path.suffix.lower() != ".pdf":
++    # hard traversal guard: basename only + resolved-path containment
++    safe = Path(filename).name
++    base = reports_dir().resolve()
++    path = (base / safe).resolve()
++    if (not path.is_relative_to(base) or not path.exists()
++            or path.suffix.lower() != ".pdf"):
+         raise HTTPException(status_code=404, detail=f"Report '{filename}' not found")
+     return FileResponse(str(path), media_type="application/pdf",
+                         filename=safe)
+diff --git a/api/routes/route.py b/api/routes/route.py
+index 7e5e637..a234030 100644
+--- a/api/routes/route.py
++++ b/api/routes/route.py
+@@ -1,26 +1,31 @@
+-"""Routing endpoints — smart routing decisions with full audit."""
++"""Routing endpoints — smart routing decisions with full audit.
++
++Request contract (matches README):
++
++    POST /route/transaction
++    {
++      "transaction": {"amount": 50000, "method": "upi", "bank": "SBI", ...},
++      "simulate": false          // true → decide & report, never execute
++    }
++"""
+ from __future__ import annotations
+ 
+ import json
+ from datetime import datetime
+ from typing import Optional
+ 
+-from fastapi import APIRouter, HTTPException, Query
++from fastapi import APIRouter, Query
+ 
+-from api.schemas.transaction import TransactionIn, TransactionOut
++from api.schemas.transaction import RouteRequest, TransactionIn, TransactionOut
+ from config import audit_path
+-from models.bank_health_scorer.scorer import BankHealthScorer
++from models.bank_health_scorer.scorer import get_shared_scorer
+ 
+ router = APIRouter()
+ 
+-_scorer: Optional[BankHealthScorer] = None
+ 
+-
+-def get_scorer() -> BankHealthScorer:
+-    global _scorer
+-    if _scorer is None:
+-        _scorer = BankHealthScorer()
+-    return _scorer
++def get_scorer():
++    """Shared scorer — same cache instance the agents update."""
++    return get_shared_scorer()
+ 
+ 
+ def warm_scores() -> dict:
+@@ -33,13 +38,14 @@ def warm_scores() -> dict:
+ 
+ @router.post("/transaction", response_model=TransactionOut,
+              summary="Route a transaction through the policy engine")
+-async def route_transaction(transaction: TransactionIn,
+-                            simulate: bool = False) -> TransactionOut:
++async def route_transaction(request: RouteRequest) -> TransactionOut:
+     """Evaluates bank rules + gateway rules and executes cascade routing."""
+     from models.ensemble import EnsemblePredictor
+     from policy.bank_rules import BankRulesEngine
+     from policy.gateway_rules import GatewayRulesEngine
+ 
++    transaction = request.transaction
++    simulate = request.simulate
+     try:  # pydantic v2
+         txn = transaction.model_dump()
+     except AttributeError:  # pydantic v1
+@@ -66,34 +72,40 @@ async def route_transaction(transaction: TransactionIn,
+                 if bank_decision.action != "PROCEED"
+                 else gateway_decision.action)
+ 
+-    # execute
++    # exact values the policy engine used — recorded in the audit trail
++    bank_health_at_time = float(
++        bank_scores.get(str(txn.get("bank", "")).upper(), {}).get("score", 100)
++        or 100)
++
++    # execute (never in simulate mode)
+     success: Optional[bool] = None
+     queued = False
++    result: Optional[dict] = None
+     if decision == "QUEUE":
+-        from agent.queue_agent import QueueAgent
++        if not simulate:
++            from agent.queue_agent import QueueAgent
+ 
+-        txn_id = await QueueAgent().enqueue(txn, reason=bank_decision.reason)
+-        queued = bool(txn_id)
++            txn_id = await QueueAgent().enqueue(txn, reason=bank_decision.reason)
++            queued = bool(txn_id)
+     elif decision != "PROCEED" and not simulate:
+         from agent.router_agent import RouterAgent
+ 
+-        result = await RouterAgent().route(txn, bank_decision, gateway_decision)
++        result = await RouterAgent().route(
++            txn, bank_decision, gateway_decision,
++            outage_prob_at_time=round(prob, 4),
++            bank_health_at_time=bank_health_at_time)
+         success = result.get("success")
+         queued = result.get("queued", False)
+-        # pick the executed route for the response
+-        if result.get("bank_used"):
+-            # reconstruct a routed response
+-            return _build_out(transaction, bank_decision, gateway_decision,
+-                              prob, success, result)
+ 
+-    # log manual/PROCEED paths via router's audit for consistency
++    # log PROCEED path via router's audit for consistency
+     if decision == "PROCEED" and not simulate:
+         _log_manual_decision(txn, "PROCEED", bank_decision.reason,
+-                             prob, success=True)
++                             prob, success=True,
++                             bank_health_at_time=bank_health_at_time)
+         success = True
+ 
+     return _build_out(transaction, bank_decision, gateway_decision,
+-                      prob, success, queued=queued)
++                      prob, success, result, queued=queued)
+ 
+ 
+ @router.get("/history", summary="Recent routing decisions")
+@@ -111,8 +123,9 @@ def _build_out(transaction: TransactionIn, bank_decision,
+                success: Optional[bool] = None,
+                result: Optional[dict] = None,
+                queued: bool = False) -> TransactionOut:
+-    executed_bank = (result or {}).get("bank_used")
+-    executed_method = (result or {}).get("method_used")
++    result = result or {}
++    executed_bank = result.get("bank_used")
++    executed_method = result.get("method_used")
+     action = bank_decision.action
+     if action == "PROCEED":
+         action = gateway_decision.action if gateway_decision.action != "PROCEED" \
+@@ -141,7 +154,8 @@ def _risk(prob: float) -> str:
+ 
+ 
+ def _log_manual_decision(txn: dict, action: str, reason: str,
+-                         prob: float, success: bool) -> None:
++                         prob: float, success: bool,
++                         bank_health_at_time: Optional[float] = None) -> None:
+     from agent.router_agent import RouterAgent
+ 
+     RouterAgent()._log_routing_decision(
+@@ -149,7 +163,7 @@ def _log_manual_decision(txn: dict, action: str, reason: str,
+         original_bank=txn.get("bank"), routed_to_bank=txn.get("bank"),
+         original_method=txn.get("method"), routed_to_method=txn.get("method"),
+         reason=reason, outage_prob_at_time=round(prob, 4),
+-        bank_health_score=None, success=success)
++        bank_health_score=bank_health_at_time, success=success)
+ 
+ 
+ def _history_from_db(limit: int) -> list[dict]:
+diff --git a/config.py b/config.py
+index b681449..17640eb 100644
+--- a/config.py
++++ b/config.py
+@@ -85,7 +85,7 @@ def data_dir(*parts: str) -> Path:
+ 
+ 
+ # ── file paths ─────────────────────────────────────────────────────────
+-SYNTHETIC_CSV = data_dir("synthetic", "generated_data.csv")
++SYNTHETIC_CSV = PROJECT_ROOT / "data" / "synthetic" / "generated_data.csv"
+ PROCESSED_DIR = data_dir("processed")
+ 
+ MODEL_ROOT = PROJECT_ROOT / "models"
+diff --git a/dashboard/__init__.py b/dashboard/__init__.py
+new file mode 100644
+index 0000000..3fed900
+--- /dev/null
++++ b/dashboard/__init__.py
+@@ -0,0 +1 @@
++"""UPI Radar — Streamlit dashboard package."""
+diff --git a/dashboard/components/__init__.py b/dashboard/components/__init__.py
+new file mode 100644
+index 0000000..e96a970
+--- /dev/null
++++ b/dashboard/components/__init__.py
+@@ -0,0 +1 @@
++"""Reusable dashboard components (charts, metric cards)."""
+diff --git a/dashboard/pages/1_Overview.py b/dashboard/pages/1_Overview.py
+index 7b035bf..2f6ab76 100644
+--- a/dashboard/pages/1_Overview.py
++++ b/dashboard/pages/1_Overview.py
+@@ -20,7 +20,7 @@ st.header("📊 Current Outage Probability")
+ st.caption("Ensemble forecast: LSTM (50%) + Prophet (30%) + Isolation Forest (20%)")
+ 
+ auto = st.toggle("🔄 Auto-refresh every 30 seconds", value=False)
+-if st.button("🔄 Refresh now", use_container_width=False):
++if st.button("🔄 Refresh now", width="content"):
+     st.rerun()
+ 
+ prediction = predict_outage()
+@@ -56,11 +56,11 @@ st.markdown("---")
+ left, right = st.columns([3, 2], gap="large")
+ 
+ with left:
+-    st.plotly_chart(risk_gauge(prob), use_container_width=True)
++    st.plotly_chart(risk_gauge(prob), width="stretch")
+ 
+ with right:
+     st.subheader("Model Breakdown")
+-    st.plotly_chart(component_bars(prediction), use_container_width=True)
++    st.plotly_chart(component_bars(prediction), width="stretch")
+     risk_box = {"RED": st.error, "YELLOW": st.warning, "GREEN": st.success}[risk]
+     risk_box(f"{risk_emoji(prob)} **{risk}** — {prediction.get('recommendation', '')}")
+     st.caption(f"Horizon: {prediction.get('horizon_minutes', 120)} minutes · "
+diff --git a/dashboard/pages/2_Bank_Health.py b/dashboard/pages/2_Bank_Health.py
+index a2520ce..a408952 100644
+--- a/dashboard/pages/2_Bank_Health.py
++++ b/dashboard/pages/2_Bank_Health.py
+@@ -20,7 +20,7 @@ payload = bank_health()
+ scores = payload["bank_health_scores"]
+ info_banner(payload.get("source", "api"))
+ 
+-st.plotly_chart(bank_health_bars(scores), use_container_width=True)
++st.plotly_chart(bank_health_bars(scores), width="stretch")
+ 
+ critical = payload.get("critical_banks", [])
+ warning = payload.get("warning_banks", [])
+@@ -46,7 +46,7 @@ rows = [{"Bank": bank, "Health": float(data["score"]),
+ frame = pd.DataFrame(rows).sort_values("Health", ascending=False)
+ frame.insert(0, "", frame["Status"].map(status_emoji))
+ st.dataframe(frame.style.format({"Health": "{:.1f}"}),
+-             use_container_width=True, hide_index=True)
++             width="stretch", hide_index=True)
+ 
+ st.caption(f"Source: {payload.get('source')} · "
+            f"updated {payload.get('timestamp', '')[:19]}")
+diff --git a/dashboard/pages/3_Predictions.py b/dashboard/pages/3_Predictions.py
+index 88bf184..d925aae 100644
+--- a/dashboard/pages/3_Predictions.py
++++ b/dashboard/pages/3_Predictions.py
+@@ -22,15 +22,15 @@ limit = st.select_slider("History window", options=[24, 48, 100, 200],
+                          value=100)
+ records = prediction_history(limit=limit)
+ if records:
+-    st.plotly_chart(history_line(records), use_container_width=True)
++    st.plotly_chart(history_line(records), width="stretch")
+ 
+     probs = [float(r.get("outage_probability", 0)) for r in records]
+     reds = sum(1 for p in probs if p >= 0.70)
+     yellows = sum(1 for p in probs if 0.30 <= p < 0.70)
+     c1, c2, c3 = st.columns(3)
+     c1.metric("Samples shown", len(probs))
+-    c2.metric(f"🔴 Red episodes (≥70%)", reds)
+-    c3.metric(f"🟡 Yellow episodes", yellows)
++    c2.metric("🔴 Red episodes (≥70%)", reds)
++    c3.metric("🟡 Yellow episodes", yellows)
+ 
+     current = predict_outage()
+     st.info(f"{risk_emoji(float(current['final_probability']))} Current risk: "
+diff --git a/dashboard/pages/4_Routing_Log.py b/dashboard/pages/4_Routing_Log.py
+index acfcc35..1cacfb7 100644
+--- a/dashboard/pages/4_Routing_Log.py
++++ b/dashboard/pages/4_Routing_Log.py
+@@ -73,4 +73,4 @@ else:
+         "original_method": "Method", "routed_to_method": "New Method",
+         "rule_id": "Rule", "reason": "Reason",
+         "outage_prob_at_time": "P(outage)", "success_icon": "Status",
+-        "queued_icon": "Queue"}), use_container_width=True, hide_index=True)
++        "queued_icon": "Queue"}), width="stretch", hide_index=True)
+diff --git a/dashboard/pages/5_Reports.py b/dashboard/pages/5_Reports.py
+index 2f1fab1..c2d4d24 100644
+--- a/dashboard/pages/5_Reports.py
++++ b/dashboard/pages/5_Reports.py
+@@ -54,7 +54,7 @@ if reports:
+         with c2:
+             st.link_button("View", f"{API_BASE}/reports/download/"
+                                    f"{report['filename']}",
+-                           use_container_width=True)
++                           width="stretch")
+         with c3:
+             try:
+                 payload = requests.get(
+@@ -62,9 +62,9 @@ if reports:
+                     timeout=5)
+                 st.download_button("⬇", data=payload.content,
+                                    file_name=report["filename"], mime="application/pdf",
+-                                   use_container_width=True)
++                                   width="stretch")
+             except Exception:
+-                st.button("⬇", disabled=True, use_container_width=True)
++                st.button("⬇", disabled=True, width="stretch")
+         st.divider()
+ else:
+     st.info("No reports yet — click 'Generate demo report' above or wait "
+diff --git a/data/__init__.py b/data/__init__.py
+new file mode 100644
+index 0000000..9ed59ea
+--- /dev/null
++++ b/data/__init__.py
+@@ -0,0 +1 @@
++"""UPI Radar — data assets (synthetic generator, raw/processed dirs)."""
+diff --git a/data/synthetic/__init__.py b/data/synthetic/__init__.py
+new file mode 100644
+index 0000000..62eea74
+--- /dev/null
++++ b/data/synthetic/__init__.py
+@@ -0,0 +1 @@
++"""Synthetic UPI outage simulator (70,080 hourly rows / year)."""
+diff --git a/data/synthetic/synthetic_generator.py b/data/synthetic/synthetic_generator.py
+index 639297d..f29a567 100644
+--- a/data/synthetic/synthetic_generator.py
++++ b/data/synthetic/synthetic_generator.py
+@@ -103,7 +103,7 @@ class UPIOutageSimulator:
+         hourly_base = self.avg_daily_volume / 24.0
+ 
+         for day_offset in range(days):
+-            day = start_date + pd.Timedelta(days=day_offset)
++            day = start_date + pd.to_timedelta(int(day_offset), unit="D")
+             for hour in range(24):
+                 dt = day.replace(hour=hour)
+ 
+@@ -199,7 +199,7 @@ class UPIOutageSimulator:
+         if df["is_outage"].sum() > 0:
+             outage_rows = df[df["is_outage"] == 1]
+             lines.append(
+-                f"Outage rows per bank: "
++                "Outage rows per bank: "
+                 + ", ".join(f"{b}={n}" for b, n in outage_rows.groupby('bank').size().items())
+             )
+         return "\n".join(lines)
+@@ -215,6 +215,7 @@ def main() -> None:
+ 
+     sim = UPIOutageSimulator(seed=args.seed)
+     df = sim.generate_hourly_data(days=args.days)
++    Path(args.output).resolve().parent.mkdir(parents=True, exist_ok=True)
+     df.to_csv(args.output, index=False)
+     if not args.quiet:
+         print(UPIOutageSimulator.summarize(df))
+diff --git a/data/upi_radar_demo.db b/data/upi_radar_demo.db
+deleted file mode 100644
+index 1149635400706859af3a83177384b86dc69873cd..0000000000000000000000000000000000000000
+GIT binary patch
+literal 0
+HcmV?d00001
+
+literal 57344
+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
+RpCIAB{!kw2cK;Qn`X7{)){g)H
+
+diff --git a/data_pipeline/kafka_consumer.py b/data_pipeline/kafka_consumer.py
+index c5312ec..3eb8e30 100644
+--- a/data_pipeline/kafka_consumer.py
++++ b/data_pipeline/kafka_consumer.py
+@@ -9,7 +9,7 @@ from __future__ import annotations
+ import json
+ import time
+ import uuid
+-from datetime import datetime, timedelta
++from datetime import datetime
+ 
+ from loguru import logger
+ 
+diff --git a/data_pipeline/kafka_producer.py b/data_pipeline/kafka_producer.py
+index 26224d2..bfa72a4 100644
+--- a/data_pipeline/kafka_producer.py
++++ b/data_pipeline/kafka_producer.py
+@@ -7,7 +7,6 @@ pipeline is still demonstrable end-to-end without Kafka.
+ from __future__ import annotations
+ 
+ import json
+-import os
+ from datetime import datetime
+ 
+ from loguru import logger
+diff --git a/data_pipeline/npci_data_loader.py b/data_pipeline/npci_data_loader.py
+index 338924d..c159489 100644
+--- a/data_pipeline/npci_data_loader.py
++++ b/data_pipeline/npci_data_loader.py
+@@ -18,9 +18,7 @@ for _ in range(4):
+ if str(ROOT) not in sys.path:
+     sys.path.insert(0, str(ROOT))
+ 
+-import csv
+ from io import StringIO
+-from pathlib import Path
+ 
+ import pandas as pd
+ from loguru import logger
+diff --git a/db/models.py b/db/models.py
+index c0ef372..1d4715a 100644
+--- a/db/models.py
++++ b/db/models.py
+@@ -6,7 +6,6 @@ changes. Tests may point DATABASE_URL at a temp sqlite file.
+ """
+ from __future__ import annotations
+ 
+-import os
+ from contextlib import contextmanager
+ from datetime import datetime, timezone
+ from pathlib import Path
+diff --git a/db/setup.py b/db/setup.py
+index 223b4e7..9a4c854 100644
+--- a/db/setup.py
++++ b/db/setup.py
+@@ -13,7 +13,6 @@ from pathlib import Path
+ from loguru import logger
+ 
+ import sys
+-from pathlib import Path
+ 
+ ROOT = Path(__file__).resolve()
+ for _ in range(4):
+@@ -25,7 +24,7 @@ if str(ROOT) not in sys.path:
+ 
+ 
+ from config import PROJECT_ROOT
+-from db.models import Base, get_engine, init_db, is_postgres, session_scope
++from db.models import get_engine, init_db, is_postgres, session_scope
+ 
+ MIGRATION_SQL = PROJECT_ROOT / "db" / "migrations" / "001_initial_schema.sql"
+ 
+@@ -71,8 +70,6 @@ def seed_demo_data() -> None:
+     """Idempotent demo seed: a few alerts/routing rows so dashboards and
+     API history endpoints show something on first boot."""
+     try:
+-        from datetime import timedelta
+-
+         from db.models import AlertLog, RoutingDecisionRow
+ 
+         with session_scope() as session:
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 9bd7aeb..7cbd9a8 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -35,6 +35,12 @@ services:
+       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
++    healthcheck:
++      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
++      interval: 10s
++      timeout: 10s
++      retries: 12
++      start_period: 30s
+     restart: unless-stopped
+ 
+   # ── PostgreSQL (historical store) ──────────────────────────
+@@ -60,6 +66,11 @@ services:
+     image: redis:7-alpine
+     ports:
+       - "6379:6379"
++    healthcheck:
++      test: ["CMD", "redis-cli", "ping"]
++      interval: 5s
++      timeout: 3s
++      retries: 10
+     restart: unless-stopped
+ 
+   # ── FastAPI backend ────────────────────────────────────────
+@@ -68,16 +79,21 @@ services:
+     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+     ports:
+       - "8000:8000"
+-    env_file: .env
++    env_file:
++      - path: .env
++        required: false    # boots with defaults (demo mode) if .env is absent
+     environment:
+       - POSTGRES_HOST=postgres
+       - DATABASE_URL=postgresql://admin:password123@postgres:5432/upi_radar
+       - REDIS_HOST=redis
+       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+     depends_on:
+-      - postgres
+-      - redis
+-      - kafka
++      postgres:
++        condition: service_healthy
++      redis:
++        condition: service_healthy
++      kafka:
++        condition: service_healthy
+     volumes:
+       - .:/app
+     restart: unless-stopped
+@@ -88,7 +104,9 @@ services:
+     command: streamlit run dashboard/app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
+     ports:
+       - "8501:8501"
+-    env_file: .env
++    env_file:
++      - path: .env
++        required: false    # boots with defaults (demo mode) if .env is absent
+     environment:
+       - RADAR_API_BASE=http://api:8000
+     depends_on:
+@@ -101,16 +119,21 @@ services:
+   agent:
+     build: .
+     command: python -m agent.monitor_agent
+-    env_file: .env
++    env_file:
++      - path: .env
++        required: false    # boots with defaults (demo mode) if .env is absent
+     environment:
+       - POSTGRES_HOST=postgres
+       - DATABASE_URL=postgresql://admin:password123@postgres:5432/upi_radar
+       - REDIS_HOST=redis
+       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+     depends_on:
+-      - kafka
+-      - postgres
+-      - redis
++      postgres:
++        condition: service_healthy
++      redis:
++        condition: service_healthy
++      kafka:
++        condition: service_healthy
+     volumes:
+       - .:/app
+     restart: unless-stopped
+diff --git a/models/anomaly_detector/__init__.py b/models/anomaly_detector/__init__.py
+new file mode 100644
+index 0000000..e113a5d
+--- /dev/null
++++ b/models/anomaly_detector/__init__.py
+@@ -0,0 +1 @@
++"""Isolation Forest anomaly detector."""
+diff --git a/models/anomaly_detector/model.py b/models/anomaly_detector/model.py
+index 83008e7..1cce84e 100644
+--- a/models/anomaly_detector/model.py
++++ b/models/anomaly_detector/model.py
+@@ -80,9 +80,13 @@ class OutageAnomalyDetector:
+             frame = pd.DataFrame([features])
+         else:
+             frame = features
+-        matrix = self._feature_matrix(frame)
+-        if isinstance(frame, pd.DataFrame):
+-            matrix = frame[ANOMALY_FEATURES].astype("float64").to_numpy()
++        if not isinstance(frame, pd.DataFrame):
++            frame = pd.DataFrame(frame, columns=ANOMALY_FEATURES)
++        missing = [c for c in ANOMALY_FEATURES if c not in frame.columns]
++        if missing:
++            raise ValueError(f"Missing anomaly features: {missing}")
++        # keep feature names so sklearn doesn't warn (fit used a DataFrame)
++        matrix = frame[ANOMALY_FEATURES].astype("float64")
+         score = float(self.model.decision_function(matrix)[0])
+         prob = 1.0 / (1.0 + np.exp(score))
+         return round(float(prob), 4)
+diff --git a/models/bank_health_scorer/__init__.py b/models/bank_health_scorer/__init__.py
+new file mode 100644
+index 0000000..707e0cf
+--- /dev/null
++++ b/models/bank_health_scorer/__init__.py
+@@ -0,0 +1 @@
++"""Deterministic 0-100 bank health scorer (Redis-cached)."""
+diff --git a/models/bank_health_scorer/scorer.py b/models/bank_health_scorer/scorer.py
+index cf05b45..ac3e9db 100644
+--- a/models/bank_health_scorer/scorer.py
++++ b/models/bank_health_scorer/scorer.py
+@@ -11,7 +11,6 @@ with the same 5-minute TTL semantics, so the demo never breaks.
+ from __future__ import annotations
+ 
+ import json
+-import time
+ from datetime import datetime
+ 
+ from loguru import logger
+@@ -165,6 +164,26 @@ class BankHealthScorer:
+         return scores
+ 
+ 
++# ── shared instance ─────────────────────────────────────────────────────
++# Every component (API routes, RouterAgent, MonitorAgent) must see the SAME
++# cache — otherwise a freshly constructed scorer reports the default 100.0
++# for every bank and the audit trail records scores nobody actually used.
++_SHARED_SCORER: BankHealthScorer | None = None
++
++
++def get_shared_scorer() -> BankHealthScorer:
++    global _SHARED_SCORER
++    if _SHARED_SCORER is None:
++        _SHARED_SCORER = BankHealthScorer()
++    return _SHARED_SCORER
++
++
++def reset_shared_scorer() -> None:
++    """Test hook: drop the shared instance (fresh cache per test)."""
++    global _SHARED_SCORER
++    _SHARED_SCORER = None
++
++
+ if __name__ == "__main__":  # pragma: no cover
+     scorer = BankHealthScorer()
+     print(json.dumps(scorer.simulate_bank_scores(seed=1), indent=2))
+diff --git a/models/ensemble.py b/models/ensemble.py
+index d3c64b6..4b86029 100644
+--- a/models/ensemble.py
++++ b/models/ensemble.py
+@@ -136,9 +136,11 @@ class EnsemblePredictor:
+         iso_prob = None
+         if self.models_loaded["isolation"] and realtime_features is not None:
+             try:
++                from models.anomaly_detector.model import ANOMALY_FEATURES
++
+                 frame = pd.DataFrame([realtime_features])
+                 score = float(self.iso_model.decision_function(
+-                    frame.to_numpy())[0])
++                    frame[ANOMALY_FEATURES].astype("float64"))[0])
+                 iso_prob = round(float(1.0 / (1.0 + np.exp(score))), 4)
+             except Exception as exc:
+                 logger.debug(f"IsolationForest inference failed: {exc}")
+diff --git a/models/lstm_forecaster/__init__.py b/models/lstm_forecaster/__init__.py
+new file mode 100644
+index 0000000..257c2e0
+--- /dev/null
++++ b/models/lstm_forecaster/__init__.py
+@@ -0,0 +1 @@
++"""LSTM sequence forecaster (24h windows → 2h-ahead outage risk)."""
+diff --git a/models/lstm_forecaster/evaluate.py b/models/lstm_forecaster/evaluate.py
+index 8df8541..6b29ee2 100644
+--- a/models/lstm_forecaster/evaluate.py
++++ b/models/lstm_forecaster/evaluate.py
+@@ -8,8 +8,6 @@ from __future__ import annotations
+ import argparse
+ import json
+ 
+-import numpy as np
+-import pandas as pd
+ from loguru import logger
+ 
+ import sys
+@@ -25,8 +23,6 @@ if str(ROOT) not in sys.path:
+ 
+ 
+ from config import LSTM_MODEL_PATH, audit_path
+-from models.lstm_forecaster.model import FEATURE_COLUMNS, SEQUENCE_LENGTH, \
+-    create_sequences
+ from models.lstm_forecaster.train import build_sequences, load_and_prepare
+ 
+ try:
+diff --git a/models/lstm_forecaster/predict.py b/models/lstm_forecaster/predict.py
+index 127fc12..26caf99 100644
+--- a/models/lstm_forecaster/predict.py
++++ b/models/lstm_forecaster/predict.py
+@@ -7,7 +7,6 @@ from __future__ import annotations
+ import argparse
+ import pickle
+ 
+-import numpy as np
+ import pandas as pd
+ from loguru import logger
+ 
+@@ -25,7 +24,7 @@ if str(ROOT) not in sys.path:
+ 
+ from config import LSTM_MODEL_PATH, LSTM_SCALER_PATH
+ from models.lstm_forecaster.model import (FEATURE_COLUMNS, SEQUENCE_LENGTH,
+-                                          TENSORFLOW_AVAILABLE, tf_required)
++                                          tf_required)
+ 
+ # Lazy-loaded singletons
+ _MODEL = None
+diff --git a/models/prophet_forecaster/__init__.py b/models/prophet_forecaster/__init__.py
+new file mode 100644
+index 0000000..b0fc10b
+--- /dev/null
++++ b/models/prophet_forecaster/__init__.py
+@@ -0,0 +1 @@
++"""Prophet seasonal forecaster (per-bank + SYSTEM)."""
+diff --git a/models/prophet_forecaster/train.py b/models/prophet_forecaster/train.py
+index 98ef948..27b2501 100644
+--- a/models/prophet_forecaster/train.py
++++ b/models/prophet_forecaster/train.py
+@@ -7,7 +7,6 @@ Trains one model per bank + the SYSTEM model → saved_model/prophet_model.pkl
+ from __future__ import annotations
+ 
+ import argparse
+-import json
+ 
+ import pandas as pd
+ from loguru import logger
+@@ -24,7 +23,6 @@ if str(ROOT) not in sys.path:
+     sys.path.insert(0, str(ROOT))
+ 
+ 
+-from config import audit_path
+ from models.prophet_forecaster.model import ProphetOutageModel, prophet_required
+ 
+ DEFAULT_DATA = "data/synthetic/generated_data.csv"
+diff --git a/policy/bank_rules.py b/policy/bank_rules.py
+index 5256e28..6c81430 100644
+--- a/policy/bank_rules.py
++++ b/policy/bank_rules.py
+@@ -2,16 +2,18 @@
+ 
+ Pure deterministic rules, evaluated top-down; the FIRST match wins.
+ All routing stays WITHIN Razorpay's ecosystem (bank → bank, method → method).
++
++Health thresholds are resolved from config at *call time* so env changes
++(and pytest monkeypatching) take effect without re-importing this module.
+ """
+ from __future__ import annotations
+ 
+-import logging
+ from dataclasses import dataclass, field
+ from typing import Optional
+ 
+-from config import critical_health_threshold, warning_health_threshold
++from loguru import logger
+ 
+-logger = logging.getLogger(__name__)
++from config import critical_health_threshold, warning_health_threshold
+ 
+ ACTION_PROCEED = "PROCEED"
+ ACTION_ROUTE = "ROUTE"
+@@ -47,10 +49,13 @@ class RoutingDecision:
+ 
+ 
+ class BankRulesEngine:
+-    """Evaluate one transaction against all bank-level rules."""
++    """Evaluate one transaction against all bank-level rules.
++
++    ``CRITICAL_HEALTH`` / ``WARNING_HEALTH`` are read from config on every
++    ``evaluate()`` call (env-tunable at runtime); the class attributes are
++    kept only as import-time defaults for introspection.
++    """
+ 
+-    CRITICAL_HEALTH = critical_health_threshold()       # 30
+-    WARNING_HEALTH = warning_health_threshold()         # 70
+     HIGH_VALUE_AMOUNT = 1_000_000                       # ₹10,000 in paise
+     MIN_ALTERNATE_SCORE = 50.0
+ 
+@@ -60,6 +65,8 @@ class BankRulesEngine:
+                  outage_probability: float,
+                  anomaly_detected: bool = False) -> RoutingDecision:
+         """Top-down rule evaluation — first matching rule wins."""
++        critical_health = critical_health_threshold()   # default 30
++        warning_health = warning_health_threshold()     # default 70
+         original_bank = str(transaction.get("bank", "UNKNOWN")).upper()
+         amount = float(transaction.get("amount", 0) or 0)
+         method = transaction.get("method", "upi")
+@@ -67,11 +74,11 @@ class BankRulesEngine:
+             bank_health_scores.get(original_bank, {}).get("score", 100) or 100)
+ 
+         # ── RULE B1: bank critical → reroute everything ─────────────
+-        if bank_score < self.CRITICAL_HEALTH:
++        if bank_score < critical_health:
+             alt_bank = self._get_best_alternate_bank(original_bank,
+                                                      bank_health_scores)
+             reason = (f"RULE B1: {original_bank} health score {bank_score:.1f}% "
+-                      f"< {self.CRITICAL_HEALTH:.0f}% critical threshold")
++                      f"< {critical_health:.0f}% critical threshold")
+             logger.warning(reason)
+             return RoutingDecision(
+                 action=ACTION_QUEUE if alt_bank == "QUEUE" else ACTION_ROUTE,
+@@ -108,11 +115,11 @@ class BankRulesEngine:
+                 requires_sre_alert=True, rule_id="B3")
+ 
+         # ── RULE B4: bank degraded (warning zone) ──────────────────
+-        if bank_score < self.WARNING_HEALTH:
++        if bank_score < warning_health:
+             alt_bank = self._get_best_alternate_bank(original_bank,
+                                                      bank_health_scores)
+             reason = (f"RULE B4: {original_bank} health score {bank_score:.1f}% "
+-                      f"< {self.WARNING_HEALTH:.0f}% → route via {alt_bank}")
++                      f"< {warning_health:.0f}% → route via {alt_bank}")
+             logger.info(reason)
+             return RoutingDecision(
+                 action=ACTION_QUEUE if alt_bank == "QUEUE" else ACTION_ROUTE,
+diff --git a/policy/gateway_rules.py b/policy/gateway_rules.py
+index ad6dacf..9eb2465 100644
+--- a/policy/gateway_rules.py
++++ b/policy/gateway_rules.py
+@@ -7,9 +7,8 @@ Razorpay-supported banks — never to a competitor gateway.
+ from __future__ import annotations
+ 
+ from dataclasses import dataclass, field
+-from typing import Optional
+ 
+-from config import critical_health_threshold, warning_health_threshold
++from config import critical_health_threshold
+ 
+ METHOD_ORDER = ["card", "netbanking", "wallet", "neft_imps", "upi"]
+ 
+@@ -31,24 +30,28 @@ class ServiceRoutingDecision:
+ 
+ 
+ class GatewayRulesEngine:
+-    METHOD_CRITICAL = critical_health_threshold()    # 30
+-    METHOD_WARNING = warning_health_threshold()      # 70
++    """Method-level (rail) routing rules.
++
++    Thresholds are read from config at call time so env changes take
++    effect without re-importing this module.
++    """
+ 
+     def evaluate(self,
+                  current_method: str,
+                  method_health_scores: dict,
+                  outage_probability: float) -> ServiceRoutingDecision:
++        method_critical = critical_health_threshold()   # default 30
+         current_method = (current_method or "upi").lower()
+         current_health = float(
+             method_health_scores.get(current_method,
+                                      {"score": 100}).get("score", 100))
+ 
+         # ── RULE G1: current rail critical → switch method ─────────
+-        if current_health < self.METHOD_CRITICAL:
++        if current_health < method_critical:
+             alternate = self._suggest_alternate_method(current_method,
+                                                        method_health_scores)
+             reason = (f"RULE G1: {current_method} health {current_health:.1f}% "
+-                      f"< {self.METHOD_CRITICAL:.0f}% → switch to {alternate}")
++                      f"< {method_critical:.0f}% → switch to {alternate}")
+             return ServiceRoutingDecision(action="SWITCH_METHOD",
+                                           suggested_method=alternate,
+                                           reason=reason,
+diff --git a/policy/queue_rules.py b/policy/queue_rules.py
+index ee65623..b02d74f 100644
+--- a/policy/queue_rules.py
++++ b/policy/queue_rules.py
+@@ -26,17 +26,22 @@ class QueueRules:
+                      outage_probability: float = 0.0) -> bool:
+         """Queue when the gateway times out OR outage risk is very high."""
+         if razorpay_response_time_ms > RESPONSE_TIMEOUT_MS:
++            return True  # gateway under stress — wait & retry instead of failing
++
++        if outage_probability <= 0.90:
++            return False
++
++        # ── severe degradation window: P(outage) > 90% ──────────────
++        if transaction is None:
++            # system-level check without transaction context → shed load
+             return True
+-        # brief severe-degradation window: queue low-priority volume
+-        if outage_probability > 0.90 and not transaction:
+-            return True
+-        if transaction:
+-            amount = float(transaction.get("amount", 0) or 0)
+-            method = str(transaction.get("method", "upi")).lower()
+-            if outage_probability > 0.90 and amount < 100_000:
+-                return True  # small txns can wait a few seconds
+-            if method == "neft_imps" and outage_probability > 0.95:
+-                return True
++
++        amount = float(transaction.get("amount", 0) or 0)
++        method = str(transaction.get("method", "upi")).lower()
++        if amount < 100_000:
++            return True  # small txns (< ₹1,000) can afford a short wait
++        if method == "neft_imps" and outage_probability > 0.95:
++            return True  # near-certain outage — hold even the slow rail
+         return False
+ 
+     @staticmethod
+diff --git a/policy/sre_alert_rules.py b/policy/sre_alert_rules.py
+index 6c4bc91..018870e 100644
+--- a/policy/sre_alert_rules.py
++++ b/policy/sre_alert_rules.py
+@@ -6,8 +6,6 @@ sustained signals, and always returns a human-readable reason.
+ """
+ from __future__ import annotations
+ 
+-from config import critical_health_threshold, warning_health_threshold
+-
+ # a "high probability sample" every PREDICTION_INTERVAL_MINUTES minutes;
+ # ≥ 6 consecutive samples ≈ 30 minutes of sustained elevated risk.
+ PREDICTION_INTERVAL_MINUTES = 5
+diff --git a/requirements-runtime.txt b/requirements-runtime.txt
+index ec419db..b19fa57 100644
+--- a/requirements-runtime.txt
++++ b/requirements-runtime.txt
+@@ -6,7 +6,7 @@ scikit-learn>=1.3,<2
+ fastapi>=0.100
+ uvicorn>=0.23
+ pydantic>=2.0
+-streamlit>=1.30
++streamlit>=1.49
+ plotly>=5.15
+ kafka-python>=2.0
+ redis>=4.5
+diff --git a/requirements.txt b/requirements.txt
+index b41e6cc..f7c0b5d 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,6 +1,8 @@
+ # ═══════════════════════════════════════════════════════════
+-# UPI RADAR — Python Dependencies
+-# Target: Python 3.11+ (3.10+ works too)
++# UPI RADAR — Python Dependencies (FULL set, incl. training)
++# ⚠ Python 3.10–3.11 ONLY — tensorflow==2.15.0 / prophet==1.1.5 /
++#   numpy==1.26.0 have no wheels for 3.12+. On newer Pythons install
++#   requirements-runtime.txt instead (demo mode; no LSTM/Prophet training).
+ # NOTE: tensorflow / prophet / celery / langgraph are heavy and
+ # optional at runtime — the system auto-falls back to Demo Mode.
+ # Install the full set on your dev machine for training.
+@@ -34,7 +36,7 @@ pydantic==2.5.0
+ uvicorn==0.27.0
+ 
+ # ── Dashboard ───────────────────────────────────────────────
+-streamlit==1.31.0
++streamlit>=1.49,<2      # width= API (use_container_width removed)
+ plotly==5.18.0
+ 
+ # ── External APIs ───────────────────────────────────────────
+@@ -52,6 +54,11 @@ reportlab==4.1.0
+ python-dotenv==1.0.0
+ loguru==0.7.2
+ 
++# ── Notebooks ───────────────────────────────────────────────
++jupyterlab>=4.0
++nbformat>=5.9
++matplotlib>=3.8
++
+ # ── Testing ─────────────────────────────────────────────────
+ pytest==8.0.0
+ pytest-asyncio==0.23.0
+diff --git a/setup.py b/setup.py
+index ad979c4..5604a88 100644
+--- a/setup.py
++++ b/setup.py
+@@ -1,4 +1,11 @@
+-"""Packaging metadata for UPI Radar (Razorpay AI Buildathon 2026 — Track 5)."""
++"""Packaging metadata for UPI Radar (Razorpay AI Buildathon 2026 — Track 5).
++
++Top-level packages (api/, agent/, models/, …) are designed to run from the
++repository root; for the console scripts use an editable install:
++
++    pip install -e .            # demo runtime
++    pip install -e ".[ml]"      # + tensorflow/prophet for training
++"""
+ from pathlib import Path
+ 
+ from setuptools import find_packages, setup
+@@ -13,9 +20,12 @@ setup(
+     long_description=(Path(__file__).parent / "README.md").read_text(encoding="utf-8"),
+     long_description_content_type="text/markdown",
+     author="UPI Radar Team",
+-    url="https://github.com/yourusername/upi-radar",
++    url="https://github.com/senthilpandian-21/upi-radar",
++    license="MIT",
+     python_requires=">=3.10",
+-    packages=find_packages(exclude=("tests", "notebooks", "dashboard")),
++    packages=find_packages(exclude=("tests", "tests.*", "notebooks",
++                                            "notebooks.*", "dashboard",
++                                            "dashboard.*")),
+     install_requires=[
+         # Core data
+         "numpy>=1.24",
+diff --git a/tests/conftest.py b/tests/conftest.py
+index 3412860..2741dc6 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -31,6 +31,9 @@ def isolated_environment(tmp_path, monkeypatch):
+     reset_engine()
+     from db.models import init_db
+     init_db()
++    # fresh shared bank-health cache per test
++    from models.bank_health_scorer.scorer import reset_shared_scorer
++    reset_shared_scorer()
+     yield tmp_path
+ 
+ 
+diff --git a/tests/test_api.py b/tests/test_api.py
+index a2950a3..36841b2 100644
+--- a/tests/test_api.py
++++ b/tests/test_api.py
+@@ -54,10 +54,15 @@ class TestBanks:
+         body = response.json()
+         assert "score" in body
+ 
++    def test_unknown_bank_404(self, test_client):
++        response = test_client.get("/banks/health/NOTABANK")
++        assert response.status_code == 404
++
+ 
+ class TestRouting:
+     def test_route_transaction(self, test_client):
+-        payload = {"amount": 500000, "method": "upi", "bank": "SBI"}
++        payload = {"transaction": {"amount": 500000, "method": "upi",
++                                   "bank": "SBI"}}
+         response = test_client.post("/route/transaction", json=payload)
+         assert response.status_code == 200
+         body = response.json()
+@@ -65,15 +70,35 @@ class TestRouting:
+         assert body["action"] in ("PROCEED", "ROUTE", "QUEUE")
+ 
+     def test_route_high_value(self, test_client):
+-        payload = {"transaction_id": "txn_api_1",
+-                  "amount": 5_000_000, "method": "upi", "bank": "HDFC"}
++        payload = {"transaction": {"transaction_id": "txn_api_1",
++                                   "amount": 5_000_000, "method": "upi",
++                                   "bank": "HDFC"}}
+         response = test_client.post("/route/transaction", json=payload)
+         assert response.status_code == 200
+         body = response.json()
+         assert body["transaction_id"] == "txn_api_1"
+ 
++    def test_route_simulate_does_not_execute(self, test_client):
++        payload = {"transaction": {"transaction_id": "txn_api_sim",
++                                   "amount": 50000, "method": "upi",
++                                   "bank": "SBI"},
++                   "simulate": True}
++        response = test_client.post("/route/transaction", json=payload)
++        assert response.status_code == 200
++        body = response.json()
++        # simulate → decision is reported but nothing is queued/executed
++        assert body["queued"] is False
++        assert body["success"] in (None, True)
++
+     def test_route_invalid_payload(self, test_client):
+-        payload = {"amount": -5, "method": "upi", "bank": "SBI"}
++        payload = {"transaction": {"amount": -5, "method": "upi",
++                                   "bank": "SBI"}}
++        response = test_client.post("/route/transaction", json=payload)
++        assert response.status_code == 422
++
++    def test_route_flat_body_rejected(self, test_client):
++        """Contract is the nested RouteRequest — flat bodies must 422."""
++        payload = {"amount": 5000, "method": "upi", "bank": "SBI"}
+         response = test_client.post("/route/transaction", json=payload)
+         assert response.status_code == 422
+ 
+diff --git a/tests/test_models.py b/tests/test_models.py
+index 97ff4af..0299d2d 100644
+--- a/tests/test_models.py
++++ b/tests/test_models.py
+@@ -1,7 +1,6 @@
+ """Tests for the data generator + model layer (pure, no infra)."""
+ from __future__ import annotations
+ 
+-import numpy as np
+ import pytest
+ 
+ EXPECTED_ROWS = 365 * 24 * 8  # days × hours × banks = 70,080
+@@ -9,14 +8,14 @@ EXPECTED_BANKS = ["SBI", "HDFC", "ICICI", "AXIS", "PNB", "BOB", "KOTAK", "YES"]
+ 
+ 
+ # ── synthetic generator ──────────────────────────────────────────────
+-class TestSyntheticGenerator:
+-    @pytest.fixture(scope="class")
+-    def generated(self):
+-        from data.synthetic.synthetic_generator import UPIOutageSimulator
++@pytest.fixture(scope="module")
++def generated():
++    from data.synthetic.synthetic_generator import UPIOutageSimulator
++
++    return UPIOutageSimulator(seed=42).generate_hourly_data(days=365)
+ 
+-        frame = UPIOutageSimulator(seed=42).generate_hourly_data(days=365)
+-        return frame
+ 
++class TestSyntheticGenerator:
+     def test_row_count(self, generated):
+         assert len(generated) == EXPECTED_ROWS
+ 
+diff --git a/tests/test_routing.py b/tests/test_routing.py
+index 28620a9..b587600 100644
+--- a/tests/test_routing.py
++++ b/tests/test_routing.py
+@@ -4,8 +4,6 @@ from __future__ import annotations
+ import asyncio
+ import json
+ 
+-import pytest
+-
+ from config import audit_path
+ 
+ 

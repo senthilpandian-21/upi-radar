@@ -10,7 +10,6 @@ Everything stays inside Razorpay's ecosystem.
 from __future__ import annotations
 
 import json
-import logging
 from datetime import datetime
 
 from loguru import logger
@@ -29,7 +28,6 @@ if str(ROOT) not in sys.path:
 
 from config import audit_path
 
-logger = logging.getLogger(__name__)
 
 
 class RouterAgent:
@@ -37,13 +35,19 @@ class RouterAgent:
 
     # ── entry point ─────────────────────────────────────────────────
     async def route(self, transaction: dict,
-                    bank_decision=None, gateway_decision=None) -> dict:
+                    bank_decision=None, gateway_decision=None,
+                    outage_prob_at_time: float | None = None,
+                    bank_health_at_time: float | None = None) -> dict:
         """
         Resolve final (bank, method) from both decision layers, execute
         cascade routing and persist the audit trail.
+
+        ``outage_prob_at_time`` / ``bank_health_at_time`` should carry the
+        exact values the policy engine used so the audit row matches the
+        recorded reason; when omitted they are read from the shared scorer.
         Returns {success, bank_used, method_used, queued, attempts, reason}.
         """
-        from models.bank_health_scorer.scorer import BankHealthScorer
+        from models.bank_health_scorer.scorer import get_shared_scorer
 
         original_bank = str(transaction.get("bank", "UNKNOWN")).upper()
         original_method = transaction.get("method", "upi")
@@ -55,18 +59,20 @@ class RouterAgent:
                  (" | " + gateway_decision.reason if gateway_decision is not None
                   and getattr(gateway_decision, "reason", "") else "")
 
-        scorer = BankHealthScorer()
-        bank_health_at_time = scorer.get_bank_score(original_bank).get("score")
+        if bank_health_at_time is None:
+            scorer = get_shared_scorer()
+            bank_health_at_time = scorer.get_bank_score(original_bank).get("score")
 
         if final_bank == "QUEUE":
             queued = await self._queue_transaction(transaction, reason)
             result = {"success": False, "bank_used": None, "method_used": None,
-                      "queued": queued, "attempts": [], "reason": reason}
+                    "queued": queued, "attempts": [], "reason": reason}
             self._log_routing_decision(
                 transaction_id=transaction.get("id") or transaction.get("transaction_id"),
                 original_bank=original_bank, routed_to_bank=None,
                 original_method=original_method, routed_to_method=final_method,
-                reason=reason, success=False, queued=queued,
+                reason=reason, outage_prob_at_time=outage_prob_at_time,
+                success=False, queued=queued,
                 bank_health_score=bank_health_at_time)
             return result
 
@@ -80,7 +86,8 @@ class RouterAgent:
             routed_to_bank=attempt.get("bank_used"),
             original_method=original_method,
             routed_to_method=attempt.get("method_used", final_method),
-            reason=reason, success=attempt.get("success", False),
+            reason=reason, outage_prob_at_time=outage_prob_at_time,
+            success=attempt.get("success", False),
             queued=attempt.get("queued", False),
             bank_health_score=bank_health_at_time)
         return {**attempt, "reason": reason}
@@ -93,9 +100,9 @@ class RouterAgent:
         Try: target_bank → next healthiest banks (≤ MAX_CASCADE_ATTEMPTS).
         If every attempt fails → queue the transaction for later retry.
         """
-        from models.bank_health_scorer.scorer import BankHealthScorer
+        from models.bank_health_scorer.scorer import get_shared_scorer
 
-        scorer = BankHealthScorer()
+        scorer = get_shared_scorer()
         original_bank = str(transaction.get("bank", "UNKNOWN")).upper()
         healthy = scorer.get_best_available_banks(min_score=50.0,
                                                   exclude=[original_bank])

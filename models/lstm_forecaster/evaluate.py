@@ -8,8 +8,6 @@ from __future__ import annotations
 import argparse
 import json
 
-import numpy as np
-import pandas as pd
 from loguru import logger
 
 import sys
@@ -25,8 +23,6 @@ if str(ROOT) not in sys.path:
 
 
 from config import LSTM_MODEL_PATH, audit_path
-from models.lstm_forecaster.model import FEATURE_COLUMNS, SEQUENCE_LENGTH, \
-    create_sequences
 from models.lstm_forecaster.train import build_sequences, load_and_prepare
 
 try:

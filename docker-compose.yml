@@ -35,6 +35,12 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
     restart: unless-stopped
 
   # ── PostgreSQL (historical store) ──────────────────────────
@@ -60,6 +66,11 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
   # ── FastAPI backend ────────────────────────────────────────
@@ -68,16 +79,21 @@ services:
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false    # boots with defaults (demo mode) if .env is absent
     environment:
       - POSTGRES_HOST=postgres
       - DATABASE_URL=postgresql://admin:password123@postgres:5432/upi_radar
       - REDIS_HOST=redis
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
     depends_on:
-      - postgres
-      - redis
-      - kafka
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
     volumes:
       - .:/app
     restart: unless-stopped
@@ -88,7 +104,9 @@ services:
     command: streamlit run dashboard/app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
     ports:
       - "8501:8501"
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false    # boots with defaults (demo mode) if .env is absent
     environment:
       - RADAR_API_BASE=http://api:8000
     depends_on:
@@ -101,16 +119,21 @@ services:
   agent:
     build: .
     command: python -m agent.monitor_agent
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false    # boots with defaults (demo mode) if .env is absent
     environment:
       - POSTGRES_HOST=postgres
       - DATABASE_URL=postgresql://admin:password123@postgres:5432/upi_radar
       - REDIS_HOST=redis
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
     depends_on:
-      - kafka
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
     volumes:
       - .:/app
     restart: unless-stopped

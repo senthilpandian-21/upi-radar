@@ -103,7 +103,7 @@ class UPIOutageSimulator:
         hourly_base = self.avg_daily_volume / 24.0
 
         for day_offset in range(days):
-            day = start_date + pd.Timedelta(days=day_offset)
+            day = start_date + pd.to_timedelta(int(day_offset), unit="D")
             for hour in range(24):
                 dt = day.replace(hour=hour)
 
@@ -199,7 +199,7 @@ class UPIOutageSimulator:
         if df["is_outage"].sum() > 0:
             outage_rows = df[df["is_outage"] == 1]
             lines.append(
-                f"Outage rows per bank: "
+                "Outage rows per bank: "
                 + ", ".join(f"{b}={n}" for b, n in outage_rows.groupby('bank').size().items())
             )
         return "\n".join(lines)
@@ -215,6 +215,7 @@ def main() -> None:
 
     sim = UPIOutageSimulator(seed=args.seed)
     df = sim.generate_hourly_data(days=args.days)
+    Path(args.output).resolve().parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(args.output, index=False)
     if not args.quiet:
         print(UPIOutageSimulator.summarize(df))

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Optional
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
@@ -21,10 +21,12 @@ async def list_reports() -> dict:
 
 @router.get("/download/{filename}", summary="Download a report PDF")
 async def download_report(filename: str) -> FileResponse:
-    # basic traversal guard
-    safe = filename.replace("/", "").replace("\\", "")
-    path = reports_dir() / safe
-    if not path.exists() or path.suffix.lower() != ".pdf":
+    # hard traversal guard: basename only + resolved-path containment
+    safe = Path(filename).name
+    base = reports_dir().resolve()
+    path = (base / safe).resolve()
+    if (not path.is_relative_to(base) or not path.exists()
+            or path.suffix.lower() != ".pdf"):
         raise HTTPException(status_code=404, detail=f"Report '{filename}' not found")
     return FileResponse(str(path), media_type="application/pdf",
                         filename=safe)

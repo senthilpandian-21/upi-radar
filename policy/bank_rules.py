@@ -2,16 +2,18 @@
 
 Pure deterministic rules, evaluated top-down; the FIRST match wins.
 All routing stays WITHIN Razorpay's ecosystem (bank → bank, method → method).
+
+Health thresholds are resolved from config at *call time* so env changes
+(and pytest monkeypatching) take effect without re-importing this module.
 """
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
-from config import critical_health_threshold, warning_health_threshold
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+from config import critical_health_threshold, warning_health_threshold
 
 ACTION_PROCEED = "PROCEED"
 ACTION_ROUTE = "ROUTE"
@@ -47,10 +49,13 @@ class RoutingDecision:
 
 
 class BankRulesEngine:
-    """Evaluate one transaction against all bank-level rules."""
+    """Evaluate one transaction against all bank-level rules.
 
-    CRITICAL_HEALTH = critical_health_threshold()       # 30
-    WARNING_HEALTH = warning_health_threshold()         # 70
+    ``CRITICAL_HEALTH`` / ``WARNING_HEALTH`` are read from config on every
+    ``evaluate()`` call (env-tunable at runtime); the class attributes are
+    kept only as import-time defaults for introspection.
+    """
+
     HIGH_VALUE_AMOUNT = 1_000_000                       # ₹10,000 in paise
     MIN_ALTERNATE_SCORE = 50.0
 
@@ -60,6 +65,8 @@ class BankRulesEngine:
                  outage_probability: float,
                  anomaly_detected: bool = False) -> RoutingDecision:
         """Top-down rule evaluation — first matching rule wins."""
+        critical_health = critical_health_threshold()   # default 30
+        warning_health = warning_health_threshold()     # default 70
         original_bank = str(transaction.get("bank", "UNKNOWN")).upper()
         amount = float(transaction.get("amount", 0) or 0)
         method = transaction.get("method", "upi")
@@ -67,11 +74,11 @@ class BankRulesEngine:
             bank_health_scores.get(original_bank, {}).get("score", 100) or 100)
 
         # ── RULE B1: bank critical → reroute everything ─────────────
-        if bank_score < self.CRITICAL_HEALTH:
+        if bank_score < critical_health:
             alt_bank = self._get_best_alternate_bank(original_bank,
                                                      bank_health_scores)
             reason = (f"RULE B1: {original_bank} health score {bank_score:.1f}% "
-                      f"< {self.CRITICAL_HEALTH:.0f}% critical threshold")
+                      f"< {critical_health:.0f}% critical threshold")
             logger.warning(reason)
             return RoutingDecision(
                 action=ACTION_QUEUE if alt_bank == "QUEUE" else ACTION_ROUTE,
@@ -108,11 +115,11 @@ class BankRulesEngine:
                 requires_sre_alert=True, rule_id="B3")
 
         # ── RULE B4: bank degraded (warning zone) ──────────────────
-        if bank_score < self.WARNING_HEALTH:
+        if bank_score < warning_health:
             alt_bank = self._get_best_alternate_bank(original_bank,
                                                      bank_health_scores)
             reason = (f"RULE B4: {original_bank} health score {bank_score:.1f}% "
-                      f"< {self.WARNING_HEALTH:.0f}% → route via {alt_bank}")
+                      f"< {warning_health:.0f}% → route via {alt_bank}")
             logger.info(reason)
             return RoutingDecision(
                 action=ACTION_QUEUE if alt_bank == "QUEUE" else ACTION_ROUTE,

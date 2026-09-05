@@ -20,7 +20,7 @@ payload = bank_health()
 scores = payload["bank_health_scores"]
 info_banner(payload.get("source", "api"))
 
-st.plotly_chart(bank_health_bars(scores), use_container_width=True)
+st.plotly_chart(bank_health_bars(scores), width="stretch")
 
 critical = payload.get("critical_banks", [])
 warning = payload.get("warning_banks", [])
@@ -46,7 +46,7 @@ rows = [{"Bank": bank, "Health": float(data["score"]),
 frame = pd.DataFrame(rows).sort_values("Health", ascending=False)
 frame.insert(0, "", frame["Status"].map(status_emoji))
 st.dataframe(frame.style.format({"Health": "{:.1f}"}),
-             use_container_width=True, hide_index=True)
+             width="stretch", hide_index=True)
 
 st.caption(f"Source: {payload.get('source')} · "
            f"updated {payload.get('timestamp', '')[:19]}")

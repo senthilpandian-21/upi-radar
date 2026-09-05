@@ -1,4 +1,11 @@
-"""Packaging metadata for UPI Radar (Razorpay AI Buildathon 2026 — Track 5)."""
+"""Packaging metadata for UPI Radar (Razorpay AI Buildathon 2026 — Track 5).
+
+Top-level packages (api/, agent/, models/, …) are designed to run from the
+repository root; for the console scripts use an editable install:
+
+    pip install -e .            # demo runtime
+    pip install -e ".[ml]"      # + tensorflow/prophet for training
+"""
 from pathlib import Path
 
 from setuptools import find_packages, setup
@@ -13,9 +20,12 @@ setup(
     long_description=(Path(__file__).parent / "README.md").read_text(encoding="utf-8"),
     long_description_content_type="text/markdown",
     author="UPI Radar Team",
-    url="https://github.com/yourusername/upi-radar",
+    url="https://github.com/senthilpandian-21/upi-radar",
+    license="MIT",
     python_requires=">=3.10",
-    packages=find_packages(exclude=("tests", "notebooks", "dashboard")),
+    packages=find_packages(exclude=("tests", "tests.*", "notebooks",
+                                            "notebooks.*", "dashboard",
+                                            "dashboard.*")),
     install_requires=[
         # Core data
         "numpy>=1.24",

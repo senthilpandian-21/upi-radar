@@ -1,26 +1,31 @@
-"""Routing endpoints — smart routing decisions with full audit."""
+"""Routing endpoints — smart routing decisions with full audit.
+
+Request contract (matches README):
+
+    POST /route/transaction
+    {
+      "transaction": {"amount": 50000, "method": "upi", "bank": "SBI", ...},
+      "simulate": false          // true → decide & report, never execute
+    }
+"""
 from __future__ import annotations
 
 import json
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
-from api.schemas.transaction import TransactionIn, TransactionOut
+from api.schemas.transaction import RouteRequest, TransactionIn, TransactionOut
 from config import audit_path
-from models.bank_health_scorer.scorer import BankHealthScorer
+from models.bank_health_scorer.scorer import get_shared_scorer
 
 router = APIRouter()
 
-_scorer: Optional[BankHealthScorer] = None
 
-
-def get_scorer() -> BankHealthScorer:
-    global _scorer
-    if _scorer is None:
-        _scorer = BankHealthScorer()
-    return _scorer
+def get_scorer():
+    """Shared scorer — same cache instance the agents update."""
+    return get_shared_scorer()
 
 
 def warm_scores() -> dict:
@@ -33,13 +38,14 @@ def warm_scores() -> dict:
 
 @router.post("/transaction", response_model=TransactionOut,
              summary="Route a transaction through the policy engine")
-async def route_transaction(transaction: TransactionIn,
-                            simulate: bool = False) -> TransactionOut:
+async def route_transaction(request: RouteRequest) -> TransactionOut:
     """Evaluates bank rules + gateway rules and executes cascade routing."""
     from models.ensemble import EnsemblePredictor
     from policy.bank_rules import BankRulesEngine
     from policy.gateway_rules import GatewayRulesEngine
 
+    transaction = request.transaction
+    simulate = request.simulate
     try:  # pydantic v2
         txn = transaction.model_dump()
     except AttributeError:  # pydantic v1
@@ -66,34 +72,40 @@ async def route_transaction(transaction: TransactionIn,
                 if bank_decision.action != "PROCEED"
                 else gateway_decision.action)
 
-    # execute
+    # exact values the policy engine used — recorded in the audit trail
+    bank_health_at_time = float(
+        bank_scores.get(str(txn.get("bank", "")).upper(), {}).get("score", 100)
+        or 100)
+
+    # execute (never in simulate mode)
     success: Optional[bool] = None
     queued = False
+    result: Optional[dict] = None
     if decision == "QUEUE":
-        from agent.queue_agent import QueueAgent
+        if not simulate:
+            from agent.queue_agent import QueueAgent
 
-        txn_id = await QueueAgent().enqueue(txn, reason=bank_decision.reason)
-        queued = bool(txn_id)
+            txn_id = await QueueAgent().enqueue(txn, reason=bank_decision.reason)
+            queued = bool(txn_id)
     elif decision != "PROCEED" and not simulate:
         from agent.router_agent import RouterAgent
 
-        result = await RouterAgent().route(txn, bank_decision, gateway_decision)
+        result = await RouterAgent().route(
+            txn, bank_decision, gateway_decision,
+            outage_prob_at_time=round(prob, 4),
+            bank_health_at_time=bank_health_at_time)
         success = result.get("success")
         queued = result.get("queued", False)
-        # pick the executed route for the response
-        if result.get("bank_used"):
-            # reconstruct a routed response
-            return _build_out(transaction, bank_decision, gateway_decision,
-                              prob, success, result)
 
-    # log manual/PROCEED paths via router's audit for consistency
+    # log PROCEED path via router's audit for consistency
     if decision == "PROCEED" and not simulate:
         _log_manual_decision(txn, "PROCEED", bank_decision.reason,
-                             prob, success=True)
+                             prob, success=True,
+                             bank_health_at_time=bank_health_at_time)
         success = True
 
     return _build_out(transaction, bank_decision, gateway_decision,
-                      prob, success, queued=queued)
+                      prob, success, result, queued=queued)
 
 
 @router.get("/history", summary="Recent routing decisions")
@@ -111,8 +123,9 @@ def _build_out(transaction: TransactionIn, bank_decision,
                success: Optional[bool] = None,
                result: Optional[dict] = None,
                queued: bool = False) -> TransactionOut:
-    executed_bank = (result or {}).get("bank_used")
-    executed_method = (result or {}).get("method_used")
+    result = result or {}
+    executed_bank = result.get("bank_used")
+    executed_method = result.get("method_used")
     action = bank_decision.action
     if action == "PROCEED":
         action = gateway_decision.action if gateway_decision.action != "PROCEED" \
@@ -141,7 +154,8 @@ def _risk(prob: float) -> str:
 
 
 def _log_manual_decision(txn: dict, action: str, reason: str,
-                         prob: float, success: bool) -> None:
+                         prob: float, success: bool,
+                         bank_health_at_time: Optional[float] = None) -> None:
     from agent.router_agent import RouterAgent
 
     RouterAgent()._log_routing_decision(
@@ -149,7 +163,7 @@ def _log_manual_decision(txn: dict, action: str, reason: str,
         original_bank=txn.get("bank"), routed_to_bank=txn.get("bank"),
         original_method=txn.get("method"), routed_to_method=txn.get("method"),
         reason=reason, outage_prob_at_time=round(prob, 4),
-        bank_health_score=None, success=success)
+        bank_health_score=bank_health_at_time, success=success)
 
 
 def _history_from_db(limit: int) -> list[dict]:

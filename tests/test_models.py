@@ -1,7 +1,6 @@
 """Tests for the data generator + model layer (pure, no infra)."""
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 EXPECTED_ROWS = 365 * 24 * 8  # days × hours × banks = 70,080
@@ -9,14 +8,14 @@ EXPECTED_BANKS = ["SBI", "HDFC", "ICICI", "AXIS", "PNB", "BOB", "KOTAK", "YES"]
 
 
 # ── synthetic generator ──────────────────────────────────────────────
+@pytest.fixture(scope="module")
+def generated():
+    from data.synthetic.synthetic_generator import UPIOutageSimulator
+
+    return UPIOutageSimulator(seed=42).generate_hourly_data(days=365)
+
+
 class TestSyntheticGenerator:
-    @pytest.fixture(scope="class")
-    def generated(self):
-        from data.synthetic.synthetic_generator import UPIOutageSimulator
-
-        frame = UPIOutageSimulator(seed=42).generate_hourly_data(days=365)
-        return frame
-
     def test_row_count(self, generated):
         assert len(generated) == EXPECTED_ROWS
 

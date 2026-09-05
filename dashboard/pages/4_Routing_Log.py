@@ -73,4 +73,4 @@ else:
         "original_method": "Method", "routed_to_method": "New Method",
         "rule_id": "Rule", "reason": "Reason",
         "outage_prob_at_time": "P(outage)", "success_icon": "Status",
-        "queued_icon": "Queue"}), use_container_width=True, hide_index=True)
+        "queued_icon": "Queue"}), width="stretch", hide_index=True)

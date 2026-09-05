@@ -54,10 +54,15 @@ class TestBanks:
         body = response.json()
         assert "score" in body
 
+    def test_unknown_bank_404(self, test_client):
+        response = test_client.get("/banks/health/NOTABANK")
+        assert response.status_code == 404
+
 
 class TestRouting:
     def test_route_transaction(self, test_client):
-        payload = {"amount": 500000, "method": "upi", "bank": "SBI"}
+        payload = {"transaction": {"amount": 500000, "method": "upi",
+                                   "bank": "SBI"}}
         response = test_client.post("/route/transaction", json=payload)
         assert response.status_code == 200
         body = response.json()
@@ -65,15 +70,35 @@ class TestRouting:
         assert body["action"] in ("PROCEED", "ROUTE", "QUEUE")
 
     def test_route_high_value(self, test_client):
-        payload = {"transaction_id": "txn_api_1",
-                  "amount": 5_000_000, "method": "upi", "bank": "HDFC"}
+        payload = {"transaction": {"transaction_id": "txn_api_1",
+                                   "amount": 5_000_000, "method": "upi",
+                                   "bank": "HDFC"}}
         response = test_client.post("/route/transaction", json=payload)
         assert response.status_code == 200
         body = response.json()
         assert body["transaction_id"] == "txn_api_1"
 
+    def test_route_simulate_does_not_execute(self, test_client):
+        payload = {"transaction": {"transaction_id": "txn_api_sim",
+                                   "amount": 50000, "method": "upi",
+                                   "bank": "SBI"},
+                   "simulate": True}
+        response = test_client.post("/route/transaction", json=payload)
+        assert response.status_code == 200
+        body = response.json()
+        # simulate → decision is reported but nothing is queued/executed
+        assert body["queued"] is False
+        assert body["success"] in (None, True)
+
     def test_route_invalid_payload(self, test_client):
-        payload = {"amount": -5, "method": "upi", "bank": "SBI"}
+        payload = {"transaction": {"amount": -5, "method": "upi",
+                                   "bank": "SBI"}}
+        response = test_client.post("/route/transaction", json=payload)
+        assert response.status_code == 422
+
+    def test_route_flat_body_rejected(self, test_client):
+        """Contract is the nested RouteRequest — flat bodies must 422."""
+        payload = {"amount": 5000, "method": "upi", "bank": "SBI"}
         response = test_client.post("/route/transaction", json=payload)
         assert response.status_code == 422
 

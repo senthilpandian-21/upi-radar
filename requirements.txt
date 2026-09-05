@@ -1,6 +1,8 @@
 # ═══════════════════════════════════════════════════════════
-# UPI RADAR — Python Dependencies
-# Target: Python 3.11+ (3.10+ works too)
+# UPI RADAR — Python Dependencies (FULL set, incl. training)
+# ⚠ Python 3.10–3.11 ONLY — tensorflow==2.15.0 / prophet==1.1.5 /
+#   numpy==1.26.0 have no wheels for 3.12+. On newer Pythons install
+#   requirements-runtime.txt instead (demo mode; no LSTM/Prophet training).
 # NOTE: tensorflow / prophet / celery / langgraph are heavy and
 # optional at runtime — the system auto-falls back to Demo Mode.
 # Install the full set on your dev machine for training.
@@ -34,7 +36,7 @@ pydantic==2.5.0
 uvicorn==0.27.0
 
 # ── Dashboard ───────────────────────────────────────────────
-streamlit==1.31.0
+streamlit>=1.49,<2      # width= API (use_container_width removed)
 plotly==5.18.0
 
 # ── External APIs ───────────────────────────────────────────
@@ -51,6 +53,11 @@ reportlab==4.1.0
 # ── Utils ───────────────────────────────────────────────────
 python-dotenv==1.0.0
 loguru==0.7.2
+
+# ── Notebooks ───────────────────────────────────────────────
+jupyterlab>=4.0
+nbformat>=5.9
+matplotlib>=3.8
 
 # ── Testing ─────────────────────────────────────────────────
 pytest==8.0.0

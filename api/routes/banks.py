@@ -2,23 +2,18 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 
 from api.schemas.response import BankHealthResponse
-from models.bank_health_scorer.scorer import BankHealthScorer
+from models.bank_health_scorer.scorer import get_shared_scorer
 
 router = APIRouter()
 
-_scorer: Optional[BankHealthScorer] = None
 
-
-def get_scorer() -> BankHealthScorer:
-    global _scorer
-    if _scorer is None:
-        _scorer = BankHealthScorer()
-    return _scorer
+def get_scorer():
+    """Shared scorer — the same cache instance the agents update."""
+    return get_shared_scorer()
 
 
 def _warm_scores() -> dict:
@@ -51,12 +46,18 @@ async def get_all_bank_health() -> dict:
 
 @router.get("/health/{bank_name}", summary="Single bank health detail")
 async def get_bank_health(bank_name: str) -> dict:
+    from models.bank_health_scorer.bank_config import ALL_BANKS
+
     scorer = get_scorer()
     bank = bank_name.upper()
     data = scorer.get_bank_score(bank)
     if data.get("source") == "default":
-        raise HTTPException(status_code=404,
-                            detail=f"No telemetry for bank '{bank}'")
+        if bank not in ALL_BANKS:
+            raise HTTPException(status_code=404,
+                                detail=f"No telemetry for bank '{bank}'")
+        # known bank, cache not warm yet (fresh boot) → seed simulation
+        _warm_scores()
+        data = scorer.get_bank_score(bank)
     return {"bank": bank, **data,
             "timestamp": datetime.now().isoformat()}
 

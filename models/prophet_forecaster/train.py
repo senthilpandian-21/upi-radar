@@ -7,7 +7,6 @@ Trains one model per bank + the SYSTEM model → saved_model/prophet_model.pkl
 from __future__ import annotations
 
 import argparse
-import json
 
 import pandas as pd
 from loguru import logger
@@ -24,7 +23,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-from config import audit_path
 from models.prophet_forecaster.model import ProphetOutageModel, prophet_required
 
 DEFAULT_DATA = "data/synthetic/generated_data.csv"

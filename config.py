@@ -85,7 +85,7 @@ def data_dir(*parts: str) -> Path:
 
 
 # ── file paths ─────────────────────────────────────────────────────────
-SYNTHETIC_CSV = data_dir("synthetic", "generated_data.csv")
+SYNTHETIC_CSV = PROJECT_ROOT / "data" / "synthetic" / "generated_data.csv"
 PROCESSED_DIR = data_dir("processed")
 
 MODEL_ROOT = PROJECT_ROOT / "models"

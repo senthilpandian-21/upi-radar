@@ -7,7 +7,6 @@ from __future__ import annotations
 import argparse
 import pickle
 
-import numpy as np
 import pandas as pd
 from loguru import logger
 
@@ -25,7 +24,7 @@ if str(ROOT) not in sys.path:
 
 from config import LSTM_MODEL_PATH, LSTM_SCALER_PATH
 from models.lstm_forecaster.model import (FEATURE_COLUMNS, SEQUENCE_LENGTH,
-                                          TENSORFLOW_AVAILABLE, tf_required)
+                                          tf_required)
 
 # Lazy-loaded singletons
 _MODEL = None
