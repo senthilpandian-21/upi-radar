@@ -8,8 +8,6 @@
 # Kafka/Postgres/Redis thanks to built-in fallbacks — infra services
 # are then optional. Set DEMO_MODE=false + real .env for production.
 # ═══════════════════════════════════════════════════════════
-version: '3.8'
-
 services:
   # ── Kafka dependency ───────────────────────────────────────
   zookeeper:
@@ -31,8 +29,10 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT_INTERNAL:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT_INTERNAL://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT_INTERNAL://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     restart: unless-stopped
@@ -69,6 +69,11 @@ services:
     ports:
       - "8000:8000"
     env_file: .env
+    environment:
+      - POSTGRES_HOST=postgres
+      - DATABASE_URL=postgresql://admin:password123@postgres:5432/upi_radar
+      - REDIS_HOST=redis
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
     depends_on:
       - postgres
       - redis
@@ -84,6 +89,8 @@ services:
     ports:
       - "8501:8501"
     env_file: .env
+    environment:
+      - RADAR_API_BASE=http://api:8000
     depends_on:
       - api
     volumes:
@@ -95,6 +102,11 @@ services:
     build: .
     command: python -m agent.monitor_agent
     env_file: .env
+    environment:
+      - POSTGRES_HOST=postgres
+      - DATABASE_URL=postgresql://admin:password123@postgres:5432/upi_radar
+      - REDIS_HOST=redis
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
     depends_on:
       - kafka
       - postgres
